@@ -70,7 +70,7 @@ This project implements a layered software architecture for a differential-drive
 ## Repository structure
 
 ```
-qbot_ws/
+TK_botz_workspace/
 ├── src/
 │   ├── qbot_interfaces/              # Interface contract layer
 │   │   ├── action/
@@ -127,12 +127,12 @@ qbot_ws/
 | Dependency | Version | Notes |
 |---|---|---|
 | Ubuntu | 22.04 LTS | Recommended |
-| ROS 2 | Humble Hawksbill | `ros-humble-desktop` |
-| Gazebo | Fortress / Garden | Matches your ros_gz_bridge version |
-| ros2_control | `ros-humble-ros2-control` | |
-| slam_toolbox | `ros-humble-slam-toolbox` | |
-| rosbridge_suite | `ros-humble-rosbridge-server` | |
-| ros_gz_bridge | `ros-humble-ros-gz-bridge` | |
+| ROS 2 | Jazzy Jalisco | `ros-jazzy-desktop` |
+| Gazebo | Harmonic | Matches your ros_gz_bridge version |
+| ros2_control | `ros-jazzy-ros2-control` | |
+| slam_toolbox | `ros-jazzy-slam-toolbox` | |
+| rosbridge_suite | `ros-jazzy-rosbridge-server` | |
+| ros_gz_bridge | `ros-jazzy-ros-gz-bridge` | |
 | Node.js | 18+ | For web interface |
 | Python | 3.10+ | Node scripts |
 
@@ -151,7 +151,7 @@ git clone https://github.com/your-org/qbot.git .
 ### 2. Install ROS 2 dependencies
 
 ```bash
-cd ~/qbot_ws
+cd ~/TK_botz_workspace
 sudo apt update
 rosdep install --from-paths src --ignore-src -r -y
 ```
@@ -159,7 +159,7 @@ rosdep install --from-paths src --ignore-src -r -y
 ### 3. Build the workspace
 
 ```bash
-cd ~/qbot_ws
+cd ~/TK_botz_workspace
 colcon build --symlink-install
 source install/setup.bash
 ```
