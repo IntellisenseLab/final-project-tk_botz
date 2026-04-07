@@ -1,0 +1,29 @@
+/**:
+  ros__parameters:
+    websocket_port: 9090
+    http_port: 8080
+    state_broadcast_rate_hz: 5.0
+    max_linear_speed: 0.3
+    max_angular_speed: 1.0
+    map_save_path: "/tmp/current_map.png"
+
+    # Topics
+    app_command_topic: "/app/command"
+    robot_state_topic: "/app/robot_state"
+    goal_status_topic: "/app/goal_status"
+    app_goal_topic: "/app/goal"
+    goal_topic: "/goal_pose"
+    goal_pose_topic: "/goal_pose"
+    cmd_vel_topic: "/cmd_vel"
+    odom_topic: "/odom"
+    battery_topic: "/kobuki/battery_state"
+    bumper_topic: "/kobuki/bumper_event"
+    map_topic: "/map"
+    navigate_action_name: "/navigate_to_pose"
+    goal_frame: "map"
+
+    # REST server bind
+    http_host: "0.0.0.0"
+
+    # websocket_bridge behavior
+    launch_internal_rosbridge: true
