@@ -3,8 +3,9 @@ rest_api_node.py
 
 Purpose:
 - Provide Flask REST API for app:
-  GET /status -> robot state JSON
-  GET /map    -> latest map PNG
+  GET /status    -> robot state JSON
+  GET /map       -> latest map PNG
+  GET /last_positions -> pose history JSON (query: ?count=N)
 - Subscribe to ROS topics for status and map updates.
 - Run Flask in a background thread.
 - Maintain thread-safe shared state between ROS callbacks and Flask handlers.
@@ -24,7 +25,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 from PIL import Image
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 from werkzeug.serving import make_server
 
 import rclpy
@@ -68,6 +69,8 @@ class RestApiNode(Node):
 
         self.http_host = str(self.get_parameter("http_host").value)
         self.http_port = int(self.get_parameter("http_port").value)
+        self.declare_parameter("max_history_len", 100)
+        self.max_history_len = int(self.get_parameter("max_history_len").value)
 
         odom_topic = str(self.get_parameter("odom_topic").value)
         battery_topic = str(self.get_parameter("battery_topic").value)
@@ -81,6 +84,7 @@ class RestApiNode(Node):
             "is_moving": False,
             "bumper": {"left": False, "center": False, "right": False},
         }
+        self._pose_history: list = []  # Bounded history of pose samples
         self._map_png: Optional[bytes] = None
 
         self.create_subscription(Odometry, odom_topic, self._on_odom, 20)
@@ -124,6 +128,19 @@ class RestApiNode(Node):
 
             return Response(local_png, status=200, mimetype="image/png")
 
+        @self._app.get("/last_positions")
+        def last_positions_handler():
+            try:
+                count = int(request.args.get("count",10))
+                count = max(1, min(count, self.max_history_len))
+            except (ValueError, TypeError):
+                count = 10
+
+            with self._lock:
+                positions = list(self._pose_history[-count:])
+
+            return jsonify({"positions": positions})
+
     def _on_odom(self, msg: Odometry) -> None:
         try:
             p = msg.pose.pose.position
@@ -134,9 +151,15 @@ class RestApiNode(Node):
             speed = math.sqrt((t.linear.x ** 2) + (t.linear.y ** 2))
             is_moving = speed > 0.01 or abs(t.angular.z) > 0.01
 
+            current_pose = {"x": float(p.x), "y": float(p.y), "theta": float(theta)}
+
             with self._lock:
-                self._state["pose"] = {"x": float(p.x), "y": float(p.y), "theta": float(theta)}
+                self._state["pose"] = dict(current_pose)
                 self._state["is_moving"] = bool(is_moving)
+                # Append pose to history (bounded by max_history_len)
+                self._pose_history.append(current_pose)
+                if len(self._pose_history) > self.max_history_len:
+                    self._pose_history.pop(0)
         except Exception as exc:
             self.get_logger().warn(f"Odom processing failed: {exc}")
 

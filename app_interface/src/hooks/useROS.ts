@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Ros, Topic, Service, ActionClient, Goal } from 'roslib';
+import { Ros, Topic } from 'roslib';
 
 export type RobotState = 'disconnected' | 'idle' | 'moving' | 'goal_reached' | 'error';
 
@@ -34,7 +34,9 @@ export function useROS(url = 'ws://localhost:9090') {
   const [angularVel, setAngularVel] = useState(0);
 
   const rosRef = useRef<Ros | null>(null);
-  const cmdVelRef = useRef<Topic | null>(null);
+  const appCommandRef = useRef<Topic | null>(null);
+  const appGoalRef = useRef<Topic | null>(null);
+  const restBaseUrl = useRef<string>('');
 
   const connect = useCallback(() => {
     if (rosRef.current) {
@@ -93,13 +95,26 @@ export function useROS(url = 'ws://localhost:9090') {
         setCameraImage(`data:image/jpeg;base64,${msg.data}`);
       });
 
-      // cmd_vel publisher
-      const cmdVel = new Topic({
+      // /app/command publisher (bridge protocol)
+      const appCommand = new Topic({
         ros,
-        name: '/cmd_vel',
-        messageType: 'geometry_msgs/msg/Twist',
+        name: '/app/command',
+        messageType: 'std_msgs/msg/String',
       });
-      cmdVelRef.current = cmdVel;
+      appCommandRef.current = appCommand;
+
+      // /app/goal publisher (bridge protocol for navigation)
+      const appGoal = new Topic({
+        ros,
+        name: '/app/goal',
+        messageType: 'geometry_msgs/msg/PoseStamped',
+      });
+      appGoalRef.current = appGoal;
+
+      // Derive REST base URL from WebSocket URL (e.g., ws://localhost:9090 -> http://localhost:8080)
+      const wsUrl = new URL(url);
+      const restUrl = `http://${wsUrl.hostname}:8080`;
+      restBaseUrl.current = restUrl;
     });
 
     ros.on('error', () => {
@@ -117,70 +132,65 @@ export function useROS(url = 'ws://localhost:9090') {
   }, []);
 
   const publishVelocity = useCallback((linear: number, angular: number) => {
-    if (!cmdVelRef.current) return;
-    cmdVelRef.current.publish({
-      linear: { x: linear, y: 0, z: 0 },
-      angular: { x: 0, y: 0, z: angular },
+    if (!appCommandRef.current) return;
+    // Publish via /app/command bridge protocol (JSON string)
+    appCommandRef.current.publish({
+      data: JSON.stringify({
+        type: 'velocity',
+        linear,
+        angular,
+      }),
     });
   }, []);
 
   const sendNavigationGoal = useCallback((x: number, y: number, theta = 0) => {
-    if (!rosRef.current || !connected) return;
+    if (!appGoalRef.current || !connected) return;
 
     setRobotState('moving');
     setNavFeedback({ status: 'Navigating', progress: 0, message: `Goal: (${x.toFixed(2)}, ${y.toFixed(2)})` });
 
-    const actionClient = new ActionClient({
-      ros: rosRef.current,
-      serverName: '/navigate',
-      actionName: 'custom_interfaces/action/Navigation',
-    });
-
-    const goal = new Goal({
-      actionClient,
-      goalMessage: {
-        target_x: x,
-        target_y: y,
-        target_theta: theta,
+    // Publish goal via /app/goal bridge protocol (geometry_msgs/PoseStamped)
+    appGoalRef.current.publish({
+      header: {
+        frame_id: 'map',
+        stamp: { secs: Math.floor(Date.now() / 1000), nsecs: (Date.now() % 1000) * 1e6 },
+      },
+      pose: {
+        position: { x, y, z: 0 },
+        orientation: {
+          x: 0,
+          y: 0,
+          z: Math.sin(theta / 2),
+          w: Math.cos(theta / 2),
+        },
       },
     });
 
-    goal.on('feedback', (feedback: any) => {
-      setNavFeedback({
-        status: 'Navigating',
-        progress: feedback.progress || 0,
-        message: feedback.status || 'In progress...',
-      });
-    });
+    // Status feedback handled by /app/goal_status topic (if wired in frontend later)
+    // For now, set optimistic state
+    setTimeout(() => {
+      setNavFeedback({ status: 'To Backend', progress: 50, message: 'Goal sent to navigation stack' });
+    }, 500);
 
-    goal.on('result', (result: any) => {
-      const success = result.success;
-      setRobotState(success ? 'goal_reached' : 'error');
-      setNavFeedback({
-        status: success ? 'Goal Reached' : 'Failed',
-        progress: success ? 100 : 0,
-        message: result.message || (success ? 'Navigation complete' : 'Navigation failed'),
-      });
-      setTimeout(() => setRobotState('idle'), 3000);
-    });
-
-    goal.send();
+    setTimeout(() => setRobotState('idle'), 5000);
   }, [connected]);
 
   const getLastPositions = useCallback(async (count: number): Promise<any[]> => {
-    if (!rosRef.current || !connected) return [];
+    if (!connected) return [];
 
-    return new Promise((resolve) => {
-      const service = new Service({
-        ros: rosRef.current!,
-        name: '/get_last_positions',
-        serviceType: 'custom_interfaces/srv/GetLastPositions',
-      });
-
-      service.callService({ count } as any, (result: any) => {
-        resolve(result.positions || []);
-      }, () => resolve([]));
-    });
+    try {
+      const restUrl = restBaseUrl.current;
+      if (!restUrl) return [];
+      
+      const response = await fetch(`${restUrl}/last_positions?count=${count}`);
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      return data.positions || [];
+    } catch (error) {
+      console.warn('Failed to fetch last positions:', error);
+      return [];
+    }
   }, [connected]);
 
   useEffect(() => {
