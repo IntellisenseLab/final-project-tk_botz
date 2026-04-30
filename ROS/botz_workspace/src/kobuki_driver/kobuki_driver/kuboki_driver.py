@@ -44,11 +44,25 @@ class KobukiState:
     odometry: OdometryState = field(default_factory=OdometryState)
 
 class KobukiDriver:
-    def __init__(self, port='/dev/ttyUSB0'):
+    def __init__(self, port='/dev/ttyUSB0', cmd_timeout=0.5, cmd_rate=10):
+        """
+        Initialize Kobuki driver with command handling.
+        
+        Args:
+            port: Serial port (default '/dev/ttyUSB0')
+            cmd_timeout: Command timeout in seconds (default 0.5s)
+            cmd_rate: Command send rate in Hz (default 10 Hz)
+        """
+        # Configuration parameters (can be updated by ROS later)
+        self.cmd_timeout = cmd_timeout
+        self.cmd_rate = cmd_rate
+        self.cmd_period = 1.0 / cmd_rate
+
         self.ser = None
         self.running = False
         self._state_lock = threading.Lock()
         self._serial_lock = threading.Lock()
+        self._cmd_lock = threading.Lock()
 
         # Connection Settings
         try:
@@ -64,11 +78,20 @@ class KobukiDriver:
         # Structured state storage.
         self.state = KobukiState()
 
-        # Start Background Thread
+        # Command storage (latest velocity command)
+        self._cmd_linear = 0.0  # mm/s
+        self._cmd_angular = 0.0  # rad/s
+        self._cmd_timestamp = time.time()
+
+        # Start Background Threads
         self.running = True
         self.thread = threading.Thread(target=self._run)
         self.thread.daemon = True
         self.thread.start()
+
+        self.cmd_thread = threading.Thread(target=self._cmd_loop)
+        self.cmd_thread.daemon = True
+        self.cmd_thread.start()
 
     def _run(self):
         """State machine to parse incoming serial bytes."""
@@ -161,8 +184,23 @@ class KobukiDriver:
         odom.prev_left_ticks = l_ticks
         odom.prev_right_ticks = r_ticks
 
-    def drive(self, linear_vel, angular_vel):
+    def set_velocity(self, linear_vel, angular_vel):
         """
+        Store the latest velocity command (thread-safe).
+        Command will be sent periodically by the background command loop.
+        
+        Args:
+            linear_vel: Linear velocity in mm/s
+            angular_vel: Angular velocity in rad/s
+        """
+        with self._cmd_lock:
+            self._cmd_linear = linear_vel
+            self._cmd_angular = angular_vel
+            self._cmd_timestamp = time.time()
+
+    def _send_drive_cmd(self, linear_vel, angular_vel):
+        """
+        Internal method to send drive command to robot.
         linear_vel: mm/s
         angular_vel: rad/s
         """
@@ -194,6 +232,39 @@ class KobukiDriver:
         with self._serial_lock:
             self.ser.write(packet)
 
+    def _cmd_loop(self):
+        """
+        Background thread that sends commands at cmd_rate (10 Hz default).
+        Implements timeout: stops robot if no new command in cmd_timeout (0.5s default).
+        """
+        last_send = time.time()
+        
+        while self.running:
+            now = time.time()
+            
+            # Read current command with lock
+            with self._cmd_lock:
+                cmd_linear = self._cmd_linear
+                cmd_angular = self._cmd_angular
+                cmd_age = now - self._cmd_timestamp
+            
+            # Check timeout: if command is stale, send stop command
+            if cmd_age > self.cmd_timeout:
+                self._send_drive_cmd(0, 0)
+            else:
+                self._send_drive_cmd(cmd_linear, cmd_angular)
+            
+            # Sleep to maintain cmd_rate
+            last_send = now
+            time.sleep(self.cmd_period)
+
+    def drive(self, linear_vel, angular_vel):
+        """
+        Deprecated: Use set_velocity() instead.
+        Kept for backwards compatibility.
+        """
+        self.set_velocity(linear_vel, angular_vel)
+
     def get_state(self):
         """Returns a thread-safe copy of the latest flattened state."""
         with self._state_lock:
@@ -217,17 +288,28 @@ class KobukiDriver:
 
 # --- Main Test Loop ---
 if __name__ == "__main__":
-    robot = KobukiDriver(port='/dev/ttyUSB0') # Change to your COM port
+    # Create driver with custom command timeout and rate (optional)
+    robot = KobukiDriver(
+        port='/dev/ttyUSB0',
+        cmd_timeout=0.5,   # 0.5s timeout before stopping
+        cmd_rate=10        # Send commands at 10 Hz
+    )
     
     try:
+        print("Robot started. Press Ctrl+C to stop.")
+        print(f"Command rate: {robot.cmd_rate} Hz, Timeout: {robot.cmd_timeout}s")
+        
         while True:
-            # Drive in a slow circle
-            robot.drive(100, 0.5) 
+            # Set velocity command (will be sent continuously by background thread)
+            robot.set_velocity(100, 0.5)  # Drive in a slow circle
             
             data = robot.get_state()
             print(f"Pos: {data['x']:.2f}, {data['y']:.2f} | Gyro: {data['gyro_angle']:.1f}")
             
-            time.sleep(0.1) # 10Hz Loop
+            time.sleep(0.2)  # Update display at 5 Hz
     except KeyboardInterrupt:
-        robot.drive(0, 0)
+        # Stop robot
+        robot.set_velocity(0, 0)
+        time.sleep(0.1)  # Allow time for stop command to be sent
+        robot.running = False
         print("\nStopped.")
