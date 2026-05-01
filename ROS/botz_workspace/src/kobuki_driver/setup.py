@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'kobuki_node = kobuki_driver.kobuki_node:main',
         ],
     },
 )
