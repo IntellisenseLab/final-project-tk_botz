@@ -26,5 +26,8 @@ setup(
         'console_scripts': [
             'kobuki_node = kobuki_driver.kobuki_node:main',
         ],
+        'console_scripts': [
+            'nav_action_server = kobuki_driver.nav_action_server:main',
+        ],
     },
 )
