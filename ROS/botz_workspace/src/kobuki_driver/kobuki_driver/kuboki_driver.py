@@ -31,6 +31,8 @@ class OdometryState:
     x: float = 0.0
     y: float = 0.0
     theta: float = 0.0
+    linear_velocity: float = 0.0
+    angular_velocity: float = 0.0
     prev_left_ticks: int | None = None
     prev_right_ticks: int | None = None
     updated_at: float = 0.0
@@ -44,7 +46,14 @@ class KobukiState:
     odometry: OdometryState = field(default_factory=OdometryState)
 
 class KobukiDriver:
-    def __init__(self, port='/dev/ttyUSB0', cmd_timeout=0.5, cmd_rate=10):
+    def __init__(
+        self,
+        port='/dev/ttyUSB0',
+        cmd_timeout=0.5,
+        cmd_rate=10,
+        wheel_separation=0.23,
+        tick_to_meter=0.00008529,
+    ):
         """
         Initialize Kobuki driver with command handling.
         
@@ -52,6 +61,8 @@ class KobukiDriver:
             port: Serial port (default '/dev/ttyUSB0')
             cmd_timeout: Command timeout in seconds (default 0.5s)
             cmd_rate: Command send rate in Hz (default 10 Hz)
+            wheel_separation: Distance between wheels in meters (default 0.23)
+            tick_to_meter: Encoder tick to meter conversion factor
         """
         # Configuration parameters (can be updated by ROS later)
         self.cmd_timeout = cmd_timeout
@@ -72,8 +83,8 @@ class KobukiDriver:
             return
 
         # Robot Physical Constants (for Odom)
-        self.TICK_TO_METER = 0.00008529
-        self.WHEEL_BASE = 0.230 # 230mm
+        self.TICK_TO_METER = tick_to_meter
+        self.WHEEL_BASE = wheel_separation
 
         # Structured state storage.
         self.state = KobukiState()
@@ -161,6 +172,8 @@ class KobukiDriver:
             odom.prev_left_ticks = l_ticks
             odom.prev_right_ticks = r_ticks
             odom.updated_at = update_ts
+            odom.linear_velocity = 0.0
+            odom.angular_velocity = 0.0
             return
 
         def handle_wrap(curr, prev):
@@ -171,14 +184,22 @@ class KobukiDriver:
 
         dl = handle_wrap(l_ticks, odom.prev_left_ticks) * self.TICK_TO_METER
         dr = handle_wrap(r_ticks, odom.prev_right_ticks) * self.TICK_TO_METER
+        dt = update_ts - odom.updated_at if odom.updated_at > 0.0 else 0.0
         
-        # Differential Drive Kinematics
-        dc = (dl + dr) / 2.0
-        dw = (dr - dl) / self.WHEEL_BASE
+        # Differential-drive odometry:
+        # d = (dl + dr) / 2, dtheta = (dr - dl) / wheel_base
+        d = (dl + dr) / 2.0
+        dtheta = (dr - dl) / self.WHEEL_BASE
         
-        odom.x += dc * math.cos(odom.theta + dw/2.0)
-        odom.y += dc * math.sin(odom.theta + dw/2.0)
-        odom.theta += dw
+        odom.x += d * math.cos(odom.theta)
+        odom.y += d * math.sin(odom.theta)
+        odom.theta += dtheta
+        if dt > 0.0:
+            odom.linear_velocity = d / dt
+            odom.angular_velocity = dtheta / dt
+        else:
+            odom.linear_velocity = 0.0
+            odom.angular_velocity = 0.0
         odom.updated_at = update_ts
         
         odom.prev_left_ticks = l_ticks
@@ -281,6 +302,8 @@ class KobukiDriver:
                 "x": self.state.odometry.x,
                 "y": self.state.odometry.y,
                 "theta": self.state.odometry.theta,
+                "linear_velocity": self.state.odometry.linear_velocity,
+                "angular_velocity": self.state.odometry.angular_velocity,
                 "basic_timestamp": self.state.basic.updated_at,
                 "inertial_timestamp": self.state.inertial.updated_at,
                 "odometry_timestamp": self.state.odometry.updated_at,
