@@ -1,11 +1,112 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import * as ROSLIB from 'roslib';
+import { Power, MonitorPlay, Send } from 'lucide-react';
+import './App.css';
+
+const VirtualJoystick = ({ onMove, onStop }) => {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const joystickRef = useRef(null);
+  
+  // Configuration
+  const maxRadius = 70; // Max pixel distance the stick can travel
+  const maxLinear = 0.4; // Max m/s
+  const maxAngular = 0.6; // Max rad/s
+
+  const handlePointerDown = (e) => {
+    setIsDragging(true);
+    updateJoystick(e);
+  };
+
+  const handlePointerMove = (e) => {
+    if (!isDragging) return;
+    updateJoystick(e);
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+    setPosition({ x: 0, y: 0 });
+    onStop(); // Publish zero velocities when released
+  };
+
+  const updateJoystick = useCallback((e) => {
+    if (!joystickRef.current) return;
+    
+    const rect = joystickRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    // Support both mouse and touch events
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    let dx = clientX - centerX;
+    let dy = clientY - centerY;
+
+    // Calculate distance from center
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Clamp the joystick to the circular boundary
+    if (distance > maxRadius) {
+      const angle = Math.atan2(dy, dx);
+      dx = Math.cos(angle) * maxRadius;
+      dy = Math.sin(angle) * maxRadius;
+    }
+
+    setPosition({ x: dx, y: dy });
+
+    // Mathematical Mapping to ROS Twist values
+    // Browser Y is down (positive), so we invert dy for forward movement
+    // Browser X is right (positive), so we invert dx for standard left-turn (CCW) rotation
+    const linearVel = -(dy / maxRadius) * maxLinear;
+    const angularVel = -(dx / maxRadius) * maxAngular;
+
+    // Send the combined values back to the main app
+    onMove(linearVel, angularVel);
+  }, [maxRadius, maxLinear, maxAngular, onMove]);
+
+  // Global event listeners to handle dragging outside the element bounds
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    } else {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isDragging, handlePointerMove]);
+
+  return (
+    <div 
+      className="joystick-base" 
+      ref={joystickRef}
+      onPointerDown={handlePointerDown}
+      style={{ touchAction: 'none' }} // Prevents browser scrolling on mobile devices
+    >
+      <div 
+        className="joystick-stick" 
+        style={{ 
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          transition: isDragging ? 'none' : 'transform 0.2s ease-out' 
+        }}
+      >
+        <div className="joystick-inner-ring"></div>
+      </div>
+    </div>
+  );
+};
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Connecting to ROS 2...');
   const [messages, setMessages] = useState([]);
   const [imageUrl, setImageUrl] = useState(null);
+  const [currentCmd, setCurrentCmd] = useState({ linear: 0, angular: 0 });
+  const [telemetry, setTelemetry] = useState([]);
 
   const rosRef = useRef(null);
   const chatterListenerRef = useRef(null);
@@ -17,18 +118,19 @@ function App() {
       rosRef.current.close();
     }
 
-    setStatusMessage('Connecting to ROS 2...');
+    setStatusMessage('Connecting to BOT...');
     setIsConnected(false);
     setImageUrl(null);
 
     const rosInstance = new ROSLIB.Ros({
-      url: 'ws://localhost:9090'
+      // url: 'ws://localhost:9090'
+      url: 'ws://10.210.180.51:9090'
     });
 
     rosInstance.on('connection', () => {
       console.log('✅ Connected to ROS 2');
       setIsConnected(true);
-      setStatusMessage('Connected to ROS 2 Humble');
+      setStatusMessage('Connected to the BOT');
       rosRef.current = rosInstance;
 
       subscribeToChatter(rosInstance);
@@ -43,7 +145,7 @@ function App() {
 
     rosInstance.on('close', () => {
       setIsConnected(false);
-      setStatusMessage('Disconnected from ROS');
+      setStatusMessage('Disconnected from BOT');
       rosRef.current = null;
     });
   };
@@ -71,7 +173,7 @@ function App() {
 
     const imageTopic = new ROSLIB.Topic({
       ros: rosInstance,
-      name: '/image_raw',        // ← Change this to your actual camera topic
+      name: '/image_raw',
       messageType: 'sensor_msgs/msg/Image'
     });
 
@@ -115,13 +217,10 @@ function App() {
     };
   }, []);
 
-  // Publish cmd_vel
-  const publishCmdVel = (linearX, angularZ) => {
-    if (!rosRef.current || !isConnected) {
-      alert("Not connected to ROS!");
-      return;
-    }
-
+  // Publish cmd_vel (Updated to accept floats safely)
+  const publishCmdVel = useCallback((linearX, angularZ) => {
+    if (!rosRef.current || !isConnected) return;
+    
     const cmdVel = new ROSLIB.Topic({
       ros: rosRef.current,
       name: '/cmd_vel',
@@ -129,189 +228,111 @@ function App() {
     });
 
     const twist = {
-      linear: { x: linearX, y: 0, z: 0 },
-      angular: { x: 0, y: 0, z: angularZ }
+      linear: { x: parseFloat(linearX.toFixed(3)), y: 0, z: 0 },
+      angular: { x: 0, y: 0, z: parseFloat(angularZ.toFixed(3)) }
     };
 
     cmdVel.publish(twist);
-  };
+    setCurrentCmd({ 
+      linear: twist.linear.x, 
+      angular: twist.angular.z 
+    });
+  }, [isConnected]);
 
-  return (
-    <div style={{ padding: '30px', maxWidth: '1100px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
-      <h1>ROS 2 Humble Web Interface</h1>
-
-      {/* Connection Status */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '15px 20px',
-        backgroundColor: isConnected ? '#d4edda' : '#f8d7da',
-        borderRadius: '10px',
-        marginBottom: '25px',
-        border: `2px solid ${isConnected ? '#28a745' : '#dc3545'}`
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '18px',
-            height: '18px',
-            borderRadius: '50%',
-            backgroundColor: isConnected ? '#28a745' : '#dc3545',
-            boxShadow: isConnected ? '0 0 10px #28a745' : '0 0 10px #dc3545'
-          }} />
-          <strong style={{ fontSize: '18px' }}>{statusMessage}</strong>
+return (
+    <div className="app-container">
+      {/* Header */}
+      <header className="main-header">
+        <div className="logo-section">
+          <Power className="robot-icon" />
+          <div>
+            <h1>KOBUKI BOT</h1>
+            <h2>CONTROL CENTER</h2>
+          </div>
         </div>
+        <div className="system-status-panel">
+          <h3>SYSTEM STATUS</h3>
+          <div className="status-indicator">
+            <span className={`status-dot ${isConnected ? 'online' : 'offline'}`}></span>
+            <p>{statusMessage}</p>
+          </div>
+          <button onClick={connectToROS} className="reconnect-btn">RECONNECT <Power size={16} /></button>
+        </div>
+      </header>
 
-        <button 
-          onClick={connectToROS}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer'
-          }}
-        >
-          Reconnect
-        </button>
-      </div>
+      {/* Main Content Grid */}
+      <main className="dashboard-grid">
 
-      {/* Robot Control Section */}
-      <div style={{ marginBottom: '40px', textAlign: 'center' }}>
-        <h2>Robot Control</h2>
-        <div style={joystickContainer}>
+        {/* Joystick Control */}
+        <section className="card joystick-card">
+          <div className="card-header" style={{ textAlign: 'center' }}>
+            CONTROL PANEL <span>(/cmd_vel)</span>
+          </div>
           
-          {/* Row 1, Col 2: Forward */}
-          <button 
-            style={{ ...buttonStyle, gridColumn: '2', gridRow: '1' }} 
-            onClick={() => publishCmdVel(0.4, 0)}
-          >
-            ↑
-          </button>
-
-          {/* Row 2, Col 1: Left */}
-          <button 
-            style={{ ...buttonStyle, gridColumn: '1', gridRow: '2' }} 
-            onClick={() => publishCmdVel(0, 0.6)}
-          >
-            ↺
-          </button>
-
-          {/* Row 2, Col 2: Stop */}
-          <button 
-            style={{ ...buttonStyle, gridColumn: '2', gridRow: '2', backgroundColor: '#dc3545' }} 
-            onClick={() => publishCmdVel(0, 0)}
-          >
-            STOP
-          </button>
-
-          {/* Row 2, Col 3: Right */}
-          <button 
-            style={{ ...buttonStyle, gridColumn: '3', gridRow: '2' }} 
-            onClick={() => publishCmdVel(0, -0.6)}
-          >
-            ↻
-          </button>
-
-          {/* Row 3, Col 2: Backward */}
-          <button 
-            style={{ ...buttonStyle, gridColumn: '2', gridRow: '3' }} 
-            onClick={() => publishCmdVel(-0.3, 0)}
-          >
-            ↓
-          </button>
-
-        </div>
-      </div>
-
-      {/* Camera Viewer */}
-      <div style={{ marginBottom: '40px' }}>
-        <h2>Camera Viewer</h2>
-        <div style={{
-          border: '2px solid #ddd',
-          borderRadius: '10px',
-          overflow: 'hidden',
-          backgroundColor: '#000',
-          minHeight: '400px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          {imageUrl ? (
-            <img 
-              src={imageUrl} 
-              alt="ROS Camera" 
-              style={{ maxWidth: '100%', maxHeight: '600px' }} 
+          <div className="joystick-wrapper">
+            <VirtualJoystick 
+              onMove={(linear, angular) => publishCmdVel(linear, angular)}
+              onStop={() => publishCmdVel(0, 0)}
             />
-          ) : (
-            <div style={{ color: '#aaa', textAlign: 'center' }}>
-              <p>Waiting for camera image...</p>
-              <p style={{ fontSize: '14px' }}>
-                Publish on topic: <strong>/image_raw</strong>
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+          </div>
 
-      {/* Messages Section */}
-      <div>
-        <h2>Messages from /chatter</h2>
-        <div style={{
-          backgroundColor: '#f8f9fa',
-          border: '1px solid #ddd',
-          borderRadius: '10px',
-          padding: '15px',
-          minHeight: '200px',
-          maxHeight: '320px',
-          overflowY: 'auto'
-        }}>
-          {messages.length === 0 ? (
-            <p style={{ color: '#888', fontStyle: 'italic' }}>
-              Run in another terminal: <strong>ros2 run demo_nodes_cpp talker</strong>
-            </p>
-          ) : (
-            messages.map((msg, index) => (
-              <div key={index} style={{
-                padding: '8px 10px',
-                margin: '4px 0',
-                backgroundColor: 'white',
-                borderRadius: '6px',
-                borderLeft: '4px solid #007bff'
-              }}>
-                {msg}
+          <div className="cmd-values">
+            <div className="val-box">
+              <span className="val-label">LINEAR (X)</span>
+              <span className="val-number">{currentCmd.linear > 0 ? '+' : ''}{currentCmd.linear.toFixed(2)}</span>
+            </div>
+            <div className="val-box">
+              <span className="val-label">ANGULAR (Z)</span>
+              <span className="val-number">{currentCmd.angular > 0 ? '+' : ''}{currentCmd.angular.toFixed(2)}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Live Camera Feed */}
+        <section className="card camera-card">
+          <div className="card-header">LIVE CAMERA FEED <span>(/image_raw)</span></div>
+          <div className="camera-viewport">
+            {imageUrl ? (
+              <img src={imageUrl} alt="ROS Camera Feed" />
+            ) : (
+              <div className="waiting-overlay">Waiting for stream...</div>
+            )}
+            <div className="camera-overlay top-left">FPS: 30</div>
+            <div className="camera-overlay bottom-left">FPS: 30<br/>RESOLUTION: 1280x720</div>
+          </div>
+          <button className="stream-btn"><MonitorPlay size={18} /> START/STOP STREAM</button>
+        </section>
+
+        {/* Telemetry */}
+        <section className="card messaging-card">
+          <div className="card-header">TELEMETRY & MESSAGES <span>(/chatter)</span></div>
+          <div className="msg-list">
+            {telemetry.map((log, i) => <div key={i} className="msg-item telemetry">{log}</div>)}
+          </div>
+          <div className="input-group">
+            <input type="text" placeholder="Type message to publish..." />
+            <button><Send size={18} /> SEND TEST MSG</button>
+          </div>
+        </section>
+
+        {/* Messages / Chatter */}
+        <section className="card messaging-card">
+          <div className="card-header">MESSAGES <span>(/chatter)</span></div>
+          <div className="msg-list">
+            {messages.map((msg) => (
+              <div key={msg.id} className="msg-item">
+                <span className="msg-time">[{msg.time}]</span> /chatter: {msg.text}
               </div>
-            ))
-          )}
-        </div>
-      </div>
+            ))}
+          </div>
+          <div className="input-group">
+            <input type="text" placeholder="Type message to publish..." />
+            <button><Send size={18} /> SEND TEST MSG</button>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
-
-const joystickContainer = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(3, 100px)', // 3 columns
-  gridTemplateRows: 'repeat(3, 100px)',    // 3 rows
-  gap: '10px',
-  justifyContent: 'center',
-  alignItems: 'center',
-  margin: '0 auto',
-  maxWidth: '320px'
-};
-
-const buttonStyle = {
-  width: '100%',
-  height: '100%',
-  fontSize: '18px',
-  fontWeight: 'bold',
-  border: 'none',
-  borderRadius: '12px',
-  backgroundColor: '#007bff',
-  color: 'white',
-  cursor: 'pointer',
-  transition: 'background 0.2s',
-};
 
 export default App;
