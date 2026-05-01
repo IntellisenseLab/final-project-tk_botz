@@ -1,0 +1,14 @@
+FROM osrf/ros:humble-desktop
+
+# Install basic build tools
+RUN apt-get update && apt-get install -y \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ros2_ws/src
+
+# This ensures the ROS environment is sourced automatically
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+ENTRYPOINT ["/ros_entrypoint.sh"]
+CMD ["bash"]
