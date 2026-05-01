@@ -5,7 +5,7 @@ ref: https://github.com/ldrobotSensorTeam/ldlidar_stl_sdk/blob/09d1003efe0ff5b60
 
 import serial
 import struct
-from crc_utils import crc_table
+from ROS.botz_workspace.src.lidar_driver.lidar_driver.crc_utils import crc_table
 
 
 class LIDAR:
