@@ -1,17 +1,19 @@
+import asyncio
 import time
 import rclpy
 from rclpy.action import ActionServer
 from rclpy.node import Node
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
+from kobuki_interfaces.action import RobotNav
 
 class MinimalActionServer(Node):
     def __init__(self):
         super().__init__('nav_action_server')
         self._action_server = ActionServer(
             self,
-            NavigateToPose,
-            '/navigate_to_pose',
+            RobotNav,
+            '/robot_nav',
             self.execute_callback)
         self.get_logger().info("Action Server Started. Waiting for Goal from UI...")
 
@@ -22,7 +24,7 @@ class MinimalActionServer(Node):
         target_x = goal_handle.request.pose.pose.position.x
         target_y = goal_handle.request.pose.pose.position.y
         
-        feedback_msg = NavigateToPose.Feedback()
+        feedback_msg = RobotNav.Feedback()
         
         # Simulating movement (from 10 meters away down to 0)
         for i in range(10, 0, -1):
@@ -31,10 +33,10 @@ class MinimalActionServer(Node):
             
             # Send feedback back to React UI
             goal_handle.publish_feedback(feedback_msg)
-            time.sleep(1) # Simulate 1 second of driving
+            await asyncio.sleep(1) # Simulate 1 second of driving
 
         goal_handle.succeed()
-        result = NavigateToPose.Result()
+        result = RobotNav.Result()
         return result
 
 def main(args=None):

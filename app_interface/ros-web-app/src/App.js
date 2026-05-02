@@ -262,8 +262,8 @@ function App() {
     if (isConnected && rosRef.current) {
       navActionClientRef.current = new ROSLIB.ActionClient({
         ros: rosRef.current,
-        serverName: '/navigate_to_pose',
-        actionName: 'nav2_msgs/action/NavigateToPose'
+        serverName: '/robot_nav', 
+        actionName: 'kobuki_interfaces/action/RobotNav'
       });
       console.log("Navigation ActionClient initialized");
     }
@@ -342,7 +342,7 @@ function App() {
       messageType: 'geometry_msgs/msg/Twist'
     });
 
-    const twist = ({
+    const twist =({
       linear: { x: parseFloat(linearX.toFixed(3)), y: 0, z: 0 },
       angular: { x: 0, y: 0, z: parseFloat(angularZ.toFixed(3)) }
     });
