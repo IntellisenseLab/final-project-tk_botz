@@ -258,77 +258,136 @@ function App() {
   }, []);
 
   // Initialize Navigation Action Client after successful connection
+  // useEffect(() => {
+  //   if (isConnected && rosRef.current) {
+  //     navActionClientRef.current = new ROSLIB.Action({
+  //       ros: rosRef.current,
+  //       serverName: '/robot_nav', 
+  //       actionName: 'kobuki_interfaces/RobotNav',
+  //       transportLibrary: 'rclpy',
+  //       transportOptions: {
+  //         type : 'action'
+  //       }
+  //     });
+  //     navActionClientRef.current.goals = navActionClientRef.current.goals || {};    
+  //     console.log("Navigation ActionClient initialized");
+  //   }
+  // }, [isConnected]);
+
+  //goal-oriented navigation
+//   const sendNavGoal = () => {
+//     const { x, y } = goalInput;
+
+//     if (!navActionClientRef.current || !isConnected) {
+//       alert("Navigation is not ready yet. Wait for connection.");
+//       return;
+//     }
+
+//     if (!x || !y) {
+//       alert("Please enter valid X and Y coordinates");
+//       return;
+//     }
+
+//     // 1. Create a standard Topic for the Goal (Bypassing ActionClient)
+//     const manualGoalTopic = new ROSLIB.Topic({
+//       ros: rosRef.current,
+//       name: '/robot_nav/_action/goal', // The direct ROS 2 hidden topic
+//       messageType: 'kobuki_interfaces/action/RobotNav_SendGoal_Request'
+//     });
+
+//     const goalPayload = {
+//         pose: {
+//           header: { 
+//             stamp: { sec: 0, nanosec: 0 },
+//             frame_id: 'map' 
+//           },
+//           pose: {
+//             position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
+//             orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
+//           }
+//         }
+//       };
+
+//     const goal = new ROSLIB.Goal({
+//       actionClient: navActionClientRef.current,
+//       goalMessage: goalPayload
+//     });
+
+//     // Event Listeners
+//     goal.on('feedback', (feedback) => {
+//       // Access distance_remaining directly from feedback
+//       if (feedback.distance_remaining !== undefined) {
+//         setDistanceRemaining(feedback.distance_remaining.toFixed(2));
+//         setActionStatus(`Moving... ${feedback.distance_remaining.toFixed(1)}m left`);
+//       }
+//     });
+
+//     goal.on('result', (result) => {
+//       // result.success is what we defined in our RobotNav.action
+//       if (result.success) {
+//         setActionStatus("Goal Reached Successfully!");
+//       } else {
+//         setActionStatus("Goal Failed or Canceled");
+//       }
+//       setDistanceRemaining(0);
+//     });
+
+//     goal.send();
+//     setActionStatus("Goal Sent - Navigating...");
+//     console.log(`Sent navigation goal → X:${x} Y:${y}`);
+// };
+
+  // 1. Setup the Feedback Listener
   useEffect(() => {
     if (isConnected && rosRef.current) {
-      navActionClientRef.current = new ROSLIB.Action({
+      const feedbackListener = new ROSLIB.Topic({
         ros: rosRef.current,
-        serverName: '/robot_nav', 
-        actionName: 'kobuki_interfaces/RobotNav',
-        transportLibrary: 'rclpy',
-        transportOptions: {
-          type : 'action'
+        name: '/robot_nav/_action/feedback',
+        messageType: 'kobuki_interfaces/action/RobotNav_FeedbackMessage'
+      });
+
+      feedbackListener.subscribe((message) => {
+        // ROS 2 nests the actual feedback inside a 'feedback' key
+        if (message.feedback) {
+          setDistanceRemaining(message.feedback.distance_remaining);
+          setActionStatus(`Distance: ${message.feedback.distance_remaining}m`);
         }
       });
-      navActionClientRef.current.goals = navActionClientRef.current.goals || {};    
-      console.log("Navigation ActionClient initialized");
+
+      return () => feedbackListener.unsubscribe();
     }
   }, [isConnected]);
 
-  //goal-oriented navigation
+  // 2. The Send Goal Function
   const sendNavGoal = () => {
     const { x, y } = goalInput;
 
-    if (!navActionClientRef.current || !isConnected) {
-      alert("Navigation is not ready yet. Wait for connection.");
-      return;
-    }
+    const goalTopic = new ROSLIB.Topic({
+      ros: rosRef.current,
+      name: '/robot_nav/_action/goal',
+      messageType: 'kobuki_interfaces/action/RobotNav_SendGoal_Request'
+    });
 
-    if (!x || !y) {
-      alert("Please enter valid X and Y coordinates");
-      return;
-    }
-
-    const goalPayload = {
+    const goalMsg = {
+      // Generate a unique 16-byte ID for ROS 2
+      goal_id: {
+        uuid: Array.from({length: 16}, () => Math.floor(Math.random() * 255))
+      },
+      goal: {
         pose: {
-          header: { 
-            stamp: { sec: 0, nanosec: 0 },
-            frame_id: 'map' 
-          },
+          header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
           pose: {
-            position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
-            orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
+            position: { x: parseFloat(x), y: parseFloat(y), z: 0 },
+            orientation: { w: 1.0 }
           }
         }
-      };
-
-    const goal = new ROSLIB.Goal({
-      actionClient: navActionClientRef.current,
-      goalMessage: goalPayload
-    });
-
-    // Event Listeners
-    goal.on('feedback', (feedback) => {
-      // Access distance_remaining directly from feedback
-      if (feedback.distance_remaining !== undefined) {
-        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
-        setActionStatus(`Moving... ${feedback.distance_remaining.toFixed(1)}m left`);
       }
-    });
+    };
 
-    goal.on('result', (result) => {
-      // result.success is what we defined in our RobotNav.action
-      if (result.success) {
-        setActionStatus("Goal Reached Successfully!");
-      } else {
-        setActionStatus("Goal Failed or Canceled");
-      }
-      setDistanceRemaining(0);
-    });
-
-    goal.send();
-    setActionStatus("Goal Sent - Navigating...");
-    console.log(`Sent navigation goal → X:${x} Y:${y}`);
-};
+    goalTopic.publish(goalMsg);
+    setActionStatus("Goal Published!");
+    console.log("Sent:", goalMsg);
+  };
 
   // Publish cmd_vel
   const publishCmdVel = useCallback((linearX, angularZ) => {
