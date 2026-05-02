@@ -1,12 +1,5 @@
-# Goal
-kobuki_interfaces/msg/RobotNavGoal goal
-
+geometry_msgs/PoseStamped pose
 ---
-# Result
 bool success
-string message
-# Add other result fields if needed
-
 ---
-# Feedback
-kobuki_interfaces/msg/RobotNavFeedback feedback
+float32 distance_remaining

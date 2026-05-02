@@ -39,7 +39,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RobotNav.action"
   "msg/RobotNavGoal.msg"
   "msg/RobotNavFeedback.msg"
+  "msg/RobotNavResult.msg"
   DEPENDENCIES geometry_msgs
 )
 
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()

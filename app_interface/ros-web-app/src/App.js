@@ -257,84 +257,60 @@ function App() {
     };
   }, []);
 
-  // Initialize Navigation Action Client after successful connection
+  // Initialize ActionClient (put this useEffect)
   useEffect(() => {
     if (isConnected && rosRef.current) {
       navActionClientRef.current = new ROSLIB.ActionClient({
         ros: rosRef.current,
-        serverName: '/robot_nav', 
-        actionName: 'kobuki_interfaces/RobotNav',
-        // transportLibrary: 'rclpy',
-        // transportOptions: {
-        // type : 'action'
-        // }
+        serverName: '/robot_nav',
+        actionName: 'kobuki_interfaces/action/RobotNav'
       });
-
-      console.log("Navigation ActionClient initialized");
+      console.log("RobotNav ActionClient Ready");
     }
   }, [isConnected]);
 
-  //goal-oriented navigation
+  // Send Navigation Goal
   const sendNavGoal = () => {
     const { x, y } = goalInput;
 
     if (!navActionClientRef.current || !isConnected) {
-      alert("Navigation is not ready yet. Wait for connection.");
-      return;
-    }
-
-    if (!x || !y) {
-      alert("Please enter valid X and Y coordinates");
+      alert("Action client not ready. Wait for connection.");
       return;
     }
 
     const goalMessage = {
       pose: {
-        header: {
-          frame_id: 'map'
-        },
+        header: { frame_id: 'map' },
         pose: {
-          position: { 
-            x: parseFloat(x), 
-            y: parseFloat(y), 
-            z: 0.0 
-          },
-          orientation: { 
-            x: 0.0, 
-            y: 0.0, 
-            z: 0.0, 
-            w: 1.0 
-          }
+          position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
+          orientation: { x: 0, y: 0, z: 0, w: 1.0 }
         }
       }
     };
 
-  const goal = new ROSLIB.Goal({
-    actionClient: navActionClientRef.current,
-    goalMessage: goalMessage
-  });
+    const goal = new ROSLIB.Goal({
+      actionClient: navActionClientRef.current,
+      goalMessage: goalMessage
+    });
 
-  goal.on('status', (status) => {
-    console.log('Goal status:', status);
-  });
+    goal.on('status', (status) => console.log('Status:', status));
+    
+    goal.on('feedback', (feedback) => {
+      console.log('Feedback:', feedback);
+      if (feedback.distance_remaining !== undefined) {
+        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
+      }
+      setActionStatus("Moving...");
+    });
 
-  goal.on('feedback', (feedback) => {
-    console.log('Navigation feedback:', feedback);
-    if (feedback.distance_remaining !== undefined) {
-      setDistanceRemaining(feedback.distance_remaining.toFixed(2));
-    }
-    setActionStatus("Moving toward goal...");
-  });
+    goal.on('result', (result) => {
+      console.log('Result:', result);
+      setActionStatus(result.success ? "Goal Reached!" : "Failed");
+      setDistanceRemaining(0);
+    });
 
-  goal.on('result', (result) => {
-    console.log('Navigation result:', result);
-    setActionStatus(result.status === 4 ? "Goal Reached Successfully!" : "Goal Failed");
-    setDistanceRemaining(0);
-  });
-
-  goal.send();
-  setActionStatus("Goal Sent - Navigating...");
-  console.log(`Sent navigation goal → X:${x} Y:${y}`);
+    goal.send();
+    setActionStatus("Goal Sent");
   };
 
   // Publish cmd_vel
