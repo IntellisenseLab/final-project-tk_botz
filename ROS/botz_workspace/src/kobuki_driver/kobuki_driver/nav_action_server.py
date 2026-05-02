@@ -3,7 +3,7 @@ import time
 import rclpy
 from rclpy.action import ActionServer
 from rclpy.node import Node
-from nav2_msgs.action import NavigateToPose
+# from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
 from kobuki_interfaces.action import RobotNav
 

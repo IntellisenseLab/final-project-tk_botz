@@ -260,11 +260,16 @@ function App() {
   // Initialize Navigation Action Client after successful connection
   useEffect(() => {
     if (isConnected && rosRef.current) {
-      navActionClientRef.current = new ROSLIB.ActionClient({
+      navActionClientRef.current = new ROSLIB.Action({
         ros: rosRef.current,
         serverName: '/robot_nav', 
-        actionName: 'kobuki_interfaces/action/RobotNav'
+        actionName: 'kobuki_interfaces/RobotNav',
+        transportLibrary: 'rclpy',
+        transportOptions: {
+          type : 'action'
+        }
       });
+      navActionClientRef.current.goals = navActionClientRef.current.goals || {};    
       console.log("Navigation ActionClient initialized");
     }
   }, [isConnected]);
@@ -283,53 +288,46 @@ function App() {
       return;
     }
 
-    const goalMessage = {
-      pose: {
-        header: {
-          frame_id: 'map'
-        },
+    const goalPayload = {
         pose: {
-          position: { 
-            x: parseFloat(x), 
-            y: parseFloat(y), 
-            z: 0.0 
+          header: { 
+            stamp: { sec: 0, nanosec: 0 },
+            frame_id: 'map' 
           },
-          orientation: { 
-            x: 0.0, 
-            y: 0.0, 
-            z: 0.0, 
-            w: 1.0 
+          pose: {
+            position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
+            orientation: { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
           }
         }
+      };
+
+    const goal = new ROSLIB.Goal({
+      actionClient: navActionClientRef.current,
+      goalMessage: goalPayload
+    });
+
+    // Event Listeners
+    goal.on('feedback', (feedback) => {
+      // Access distance_remaining directly from feedback
+      if (feedback.distance_remaining !== undefined) {
+        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
+        setActionStatus(`Moving... ${feedback.distance_remaining.toFixed(1)}m left`);
       }
-    };
+    });
 
-  const goal = new ROSLIB.Goal({
-    actionClient: navActionClientRef.current,
-    goalMessage: goalMessage
-  });
+    goal.on('result', (result) => {
+      // result.success is what we defined in our RobotNav.action
+      if (result.success) {
+        setActionStatus("Goal Reached Successfully!");
+      } else {
+        setActionStatus("Goal Failed or Canceled");
+      }
+      setDistanceRemaining(0);
+    });
 
-  goal.on('status', (status) => {
-    console.log('Goal status:', status);
-  });
-
-  goal.on('feedback', (feedback) => {
-    console.log('Navigation feedback:', feedback);
-    if (feedback.distance_remaining !== undefined) {
-      setDistanceRemaining(feedback.distance_remaining.toFixed(2));
-    }
-    setActionStatus("Moving toward goal...");
-  });
-
-  goal.on('result', (result) => {
-    console.log('Navigation result:', result);
-    setActionStatus(result.status === 4 ? "Goal Reached Successfully!" : "Goal Failed");
-    setDistanceRemaining(0);
-  });
-
-  goal.send();
-  setActionStatus("Goal Sent - Navigating...");
-  console.log(`Sent navigation goal → X:${x} Y:${y}`);
+    goal.send();
+    setActionStatus("Goal Sent - Navigating...");
+    console.log(`Sent navigation goal → X:${x} Y:${y}`);
 };
 
   // Publish cmd_vel
