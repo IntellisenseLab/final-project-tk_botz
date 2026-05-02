@@ -1,0 +1,46 @@
+import time
+import rclpy
+from rclpy.action import ActionServer
+from rclpy.node import Node
+from nav2_msgs.action import NavigateToPose
+from geometry_msgs.msg import PoseStamped
+
+class MinimalActionServer(Node):
+    def __init__(self):
+        super().__init__('nav_action_server')
+        self._action_server = ActionServer(
+            self,
+            NavigateToPose,
+            'navigate_to_pose', # Must match the name in React
+            self.execute_callback)
+        self.get_logger().info("Action Server Started. Waiting for Goal from UI...")
+
+    async def execute_callback(self, goal_handle):
+        self.get_logger().info('Executing goal...')
+        
+        # Get the target coordinates from the UI request
+        target_x = goal_handle.request.pose.pose.position.x
+        target_y = goal_handle.request.pose.pose.position.y
+        
+        feedback_msg = NavigateToPose.Feedback()
+        
+        # Simulating movement (from 10 meters away down to 0)
+        for i in range(10, 0, -1):
+            feedback_msg.distance_remaining = float(i)
+            self.get_logger().info(f'Feedback: {i}m remaining to ({target_x}, {target_y})')
+            
+            # Send feedback back to React UI
+            goal_handle.publish_feedback(feedback_msg)
+            time.sleep(1) # Simulate 1 second of driving
+
+        goal_handle.succeed()
+        result = NavigateToPose.Result()
+        return result
+
+def main(args=None):
+    rclpy.init(args=args)
+    minimal_action_server = MinimalActionServer()
+    rclpy.spin(minimal_action_server)
+
+if __name__ == '__main__':
+    main()
