@@ -264,10 +264,10 @@ function App() {
         ros: rosRef.current,
         serverName: '/robot_nav', 
         actionName: 'kobuki_interfaces/RobotNav',
-        transportLibrary: 'rclpy',
-        transportOptions: {
-        type : 'action'
-        }
+        // transportLibrary: 'rclpy',
+        // transportOptions: {
+        // type : 'action'
+        // }
       });
 
       console.log("Navigation ActionClient initialized");
