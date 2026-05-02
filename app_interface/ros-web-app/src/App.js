@@ -116,6 +116,7 @@ function App() {
   const chatterListenerRef = useRef(null);
   const imageListenerRef = useRef(null);
   const odomListenerRef = useRef(null); // Ref for cleanup
+  const navActionClientRef = useRef(null);
 
   // Connect / Reconnect to ROS 
   const connectToROS = () => {
@@ -216,7 +217,7 @@ function App() {
   const getYawFromQuaternion = (q) => {
     const siny_cosp = 2 * (q.w * q.z + q.x * q.y);
     const cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-    console.log('Quaternion:', q, 'Siny:', siny_cosp, 'Cosy:', cosy_cosp)
+    // console.log('Quaternion:', q, 'Siny:', siny_cosp, 'Cosy:', cosy_cosp)
     // const cosy_cosp = (q.w * q.w) - (q.x * q.x) - (q.y * q.y) + (q.z * q.z);
     const yaw = Math.atan2(siny_cosp, cosy_cosp);
     return (yaw * 0.18) / Math.PI; // Convert to degrees
@@ -256,51 +257,80 @@ function App() {
     };
   }, []);
 
+  // Initialize Navigation Action Client after successful connection
+  useEffect(() => {
+    if (isConnected && rosRef.current) {
+      navActionClientRef.current = new ROSLIB.ActionClient({
+        ros: rosRef.current,
+        serverName: '/navigate_to_pose',
+        actionName: 'nav2_msgs/action/NavigateToPose'
+      });
+      console.log("Navigation ActionClient initialized");
+    }
+  }, [isConnected]);
+
   //goal-oriented navigation
   const sendNavGoal = () => {
     const { x, y } = goalInput;
-    if (!rosRef.current || !isConnected) return;
 
-    // 1. Create the Action Client
-    const navActionClient = new ROSLIB.Action({
-      ros: rosRef.current,
-      name: '/navigate_to_pose',
-      actionName: 'nav2_msgs/action/NavigateToPose'
-    });
+    if (!navActionClientRef.current || !isConnected) {
+      alert("Navigation is not ready yet. Wait for connection.");
+      return;
+    }
 
-    // 2. Define the Goal (X=0, Y=4)
-const goal = new ROSLIB.Goal({
-    actionClient: navActionClient,
-    goalMessage: {
+    if (!x || !y) {
+      alert("Please enter valid X and Y coordinates");
+      return;
+    }
+
+    const goalMessage = {
       pose: {
-        header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
+        header: {
+          frame_id: 'map'
+        },
         pose: {
-          position: { x: parseFloat(x), y: parseFloat(y), z: 0 },
-          orientation: { x: 0, y: 0, z: 0, w: 1 }
+          position: { 
+            x: parseFloat(x), 
+            y: parseFloat(y), 
+            z: 0.0 
+          },
+          orientation: { 
+            x: 0.0, 
+            y: 0.0, 
+            z: 0.0, 
+            w: 1.0 
+          }
         }
       }
-    }
+    };
+
+  const goal = new ROSLIB.Goal({
+    actionClient: navActionClientRef.current,
+    goalMessage: goalMessage
   });
 
-    // 3. Listen for Feedback (Live updates)
-    goal.on('feedback', (feedback) => {
-      // Nav2 sends 'distance_remaining' in its feedback message
-      if (feedback.distance_remaining) {
-        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
-        setActionStatus("Moving...");
-      }
-    });
+  goal.on('status', (status) => {
+    console.log('Goal status:', status);
+  });
 
-    // 4. Listen for the Final Result
-    goal.on('result', (result) => {
-      setActionStatus("Goal Reached!");
-      setDistanceRemaining(0);
-    });
+  goal.on('feedback', (feedback) => {
+    console.log('Navigation feedback:', feedback);
+    if (feedback.distance_remaining !== undefined) {
+      setDistanceRemaining(feedback.distance_remaining.toFixed(2));
+    }
+    setActionStatus("Moving toward goal...");
+  });
 
-    // 5. Send it!
-    goal.send();
-    setActionStatus("Goal Sent");
-  };
+  goal.on('result', (result) => {
+    console.log('Navigation result:', result);
+    setActionStatus(result.status === 4 ? "Goal Reached Successfully!" : "Goal Failed");
+    setDistanceRemaining(0);
+  });
+
+  goal.send();
+  setActionStatus("Goal Sent - Navigating...");
+  console.log(`Sent navigation goal → X:${x} Y:${y}`);
+};
 
   // Publish cmd_vel
   const publishCmdVel = useCallback((linearX, angularZ) => {
@@ -312,10 +342,10 @@ const goal = new ROSLIB.Goal({
       messageType: 'geometry_msgs/msg/Twist'
     });
 
-    const twist = {
+    const twist = ({
       linear: { x: parseFloat(linearX.toFixed(3)), y: 0, z: 0 },
       angular: { x: 0, y: 0, z: parseFloat(angularZ.toFixed(3)) }
-    };
+    });
 
     cmdVel.publish(twist);
     setCurrentCmd({ 

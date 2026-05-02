@@ -11,7 +11,7 @@ class MinimalActionServer(Node):
         self._action_server = ActionServer(
             self,
             NavigateToPose,
-            'navigate_to_pose', # Must match the name in React
+            '/navigate_to_pose',
             self.execute_callback)
         self.get_logger().info("Action Server Started. Waiting for Goal from UI...")
 
