@@ -23,7 +23,7 @@ class KobukiRosNode(Node):
         super().__init__('kobuki_node')
 
         # Parameters (can be set via ros2 param later)
-        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('port', '/dev/kobuki')
         self.declare_parameter('cmd_timeout', 0.5)
         self.declare_parameter('cmd_rate', 10)
         self.declare_parameter('odom_pub_rate', 10)

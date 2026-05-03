@@ -229,6 +229,9 @@ class KobukiDriver:
         # Radius = v / w
         if abs(angular_vel) < 0.001:
             radius = 0
+        elif abs(linear_vel) < 10:
+            radius = 1 if angular_vel > 0 else -1
+            linear_vel = float((angular_vel * 1000 * self.WHEEL_BASE) / 2)
         else:
             radius = int(linear_vel / angular_vel)
             # Clip radius to Kobuki limits
