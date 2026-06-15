@@ -107,12 +107,17 @@ function App() {
   const [imageUrl, setImageUrl] = useState(null);
   const [currentCmd, setCurrentCmd] = useState({ linear: 0, angular: 0 });
   const [telemetry, setTelemetry] = useState([]);
-
+  const [odomData, setOdomData] = useState({ x: 0, y: 0, theta: 0 });
+  const [actionStatus, setActionStatus] = useState("Idle");
+  const [distanceRemaining, setDistanceRemaining] = useState(0);
+  const [goalInput, setGoalInput] = useState({ x: 0, y: 0 });
+  
   const rosRef = useRef(null);
   const chatterListenerRef = useRef(null);
   const imageListenerRef = useRef(null);
+  const odomListenerRef = useRef(null); // Ref for cleanup
 
-  // Connect / Reconnect to ROS
+  // Connect / Reconnect to ROS 
   const connectToROS = () => {
     if (rosRef.current) {
       rosRef.current.close();
@@ -135,6 +140,7 @@ function App() {
 
       subscribeToChatter(rosInstance);
       subscribeToCamera(rosInstance);
+      subscribeToOdom(rosInstance);
     });
 
     rosInstance.on('error', (error) => {
@@ -206,6 +212,38 @@ function App() {
     });
   };
 
+  // Helper to convert Quaternion to Yaw (Degrees)
+  const getYawFromQuaternion = (q) => {
+    const siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    const cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    console.log('Quaternion:', q, 'Siny:', siny_cosp, 'Cosy:', cosy_cosp)
+    // const cosy_cosp = (q.w * q.w) - (q.x * q.x) - (q.y * q.y) + (q.z * q.z);
+    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+    return (yaw * 0.18) / Math.PI; // Convert to degrees
+  };
+
+  // Subscribe to Odometry
+  const subscribeToOdom = (rosInstance) => {
+    if (odomListenerRef.current) odomListenerRef.current.unsubscribe();
+
+    const odomTopic = new ROSLIB.Topic({
+      ros: rosInstance,
+      name: '/odometry/filtered',
+      messageType: 'nav_msgs/msg/Odometry'
+    });
+
+    odomListenerRef.current = odomTopic;
+
+    odomTopic.subscribe((message) => {
+      const pose = message.pose.pose;
+      setOdomData({
+        x: pose.position.x.toFixed(2),
+        y: pose.position.y.toFixed(2),
+        theta: getYawFromQuaternion(pose.orientation).toFixed(1)
+      });
+    });
+  };
+  
   // Initial connection
   useEffect(() => {
     connectToROS();
@@ -214,10 +252,57 @@ function App() {
       if (rosRef.current) rosRef.current.close();
       if (chatterListenerRef.current) chatterListenerRef.current.unsubscribe();
       if (imageListenerRef.current) imageListenerRef.current.unsubscribe();
+      if (odomListenerRef.current) odomListenerRef.current.unsubscribe();
     };
   }, []);
 
-  // Publish cmd_vel (Updated to accept floats safely)
+  //goal-oriented navigation
+  const sendNavGoal = () => {
+    const { x, y } = goalInput;
+    if (!rosRef.current || !isConnected) return;
+
+    // 1. Create the Action Client
+    const navActionClient = new ROSLIB.Action({
+      ros: rosRef.current,
+      name: '/navigate_to_pose',
+      actionName: 'nav2_msgs/action/NavigateToPose'
+    });
+
+    // 2. Define the Goal (X=0, Y=4)
+const goal = new ROSLIB.Goal({
+    actionClient: navActionClient,
+    goalMessage: {
+      pose: {
+        header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
+        pose: {
+          position: { x: parseFloat(x), y: parseFloat(y), z: 0 },
+          orientation: { x: 0, y: 0, z: 0, w: 1 }
+        }
+      }
+    }
+  });
+
+    // 3. Listen for Feedback (Live updates)
+    goal.on('feedback', (feedback) => {
+      // Nav2 sends 'distance_remaining' in its feedback message
+      if (feedback.distance_remaining) {
+        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
+        setActionStatus("Moving...");
+      }
+    });
+
+    // 4. Listen for the Final Result
+    goal.on('result', (result) => {
+      setActionStatus("Goal Reached!");
+      setDistanceRemaining(0);
+    });
+
+    // 5. Send it!
+    goal.send();
+    setActionStatus("Goal Sent");
+  };
+
+  // Publish cmd_vel
   const publishCmdVel = useCallback((linearX, angularZ) => {
     if (!rosRef.current || !isConnected) return;
     
@@ -303,8 +388,89 @@ return (
           <button className="stream-btn"><MonitorPlay size={18} /> START/STOP STREAM</button>
         </section>
 
+        {/* Simple Visual Representation */}
+        <section className="card camera-card"> {/* Using camera-card class for same size */}
+          <div className="card-header">ROBOT POSITION VISUALIZER <span>(/odom)</span></div>
+          <div className="map-viewport">
+            <div className="map-grid">
+              {/* The Robot Dot */}
+              <div 
+                className="robot-marker" 
+                style={{ 
+                  left: `calc(50% + ${odomData.x * 40}px)`, 
+                  top: `calc(50% - ${odomData.y * 40}px)`,
+                  transform: `translate(-50%, -50%) rotate(${-odomData.theta}deg)` 
+                }}
+              >
+                <div className="robot-arrow">↑</div>
+              </div>
+              
+              {/* Coordinate Labels */}
+              {/* <div className="coords-overlay">
+                X: {odomData.x} | Y: {odomData.y} | θ: {odomData.theta}°
+              </div> */}
+            </div>
+          </div>
+        </section>
+
+
+        <section className="card camera-card"> {/* Using camera-card class for same size */}
+          {/* Position */}    
+          <section className="card odom-card">
+            <div className="card-header">ODOMETRY <span>(/odometry/filtered)</span></div>
+            <div className="odom-values">
+              <div className="val-box">
+                <span className="val-label">POS X</span>
+                <span className="val-number">{odomData.x} m</span>
+              </div>
+              <div className="val-box">
+                <span className="val-label">POS Y</span>
+                <span className="val-number">{odomData.y} m</span>
+              </div>
+              <div className="val-box">
+                <span className="val-label">YAW (θ)</span>
+                <span className="val-number">{odomData.theta}°</span>
+              </div>
+            </div>
+          </section>
+          <br/>
+
+          {/* Goal Input Section */}
+          <section className="card joystick-card">
+            <div className="card-header">SET NAVIGATION GOAL</div>
+            <div style={{ padding: '20px' }}>
+              <div className="goal-input-container">
+                <div className="input-field">
+                  <label>TARGET X</label>
+                  <input 
+                    type="number" 
+                    value={goalInput.x} 
+                    onChange={(e) => setGoalInput({...goalInput, x: e.target.value})}
+                  />
+                </div>
+                <div className="input-field">
+                  <label>TARGET Y</label>
+                  <input 
+                    type="number" 
+                    value={goalInput.y} 
+                    onChange={(e) => setGoalInput({...goalInput, y: e.target.value})}
+                  />
+                </div>
+              </div>
+              
+              <button onClick={sendNavGoal} className="go-button">
+                START NAVIGATION
+              </button>
+
+              <div className="action-feedback">
+                Status: <span>{actionStatus}</span> <br/>
+                Distance: <span>{distanceRemaining}m</span>
+              </div>
+            </div>
+          </section>
+        </section> 
         {/* Telemetry */}
-        <section className="card messaging-card">
+        {/* <section className="card messaging-card">
           <div className="card-header">TELEMETRY & MESSAGES <span>(/chatter)</span></div>
           <div className="msg-list">
             {telemetry.map((log, i) => <div key={i} className="msg-item telemetry">{log}</div>)}
@@ -313,10 +479,10 @@ return (
             <input type="text" placeholder="Type message to publish..." />
             <button><Send size={18} /> SEND TEST MSG</button>
           </div>
-        </section>
+        </section> */}
 
         {/* Messages / Chatter */}
-        <section className="card messaging-card">
+        {/* <section className="card messaging-card">
           <div className="card-header">MESSAGES <span>(/chatter)</span></div>
           <div className="msg-list">
             {messages.map((msg) => (
@@ -329,7 +495,7 @@ return (
             <input type="text" placeholder="Type message to publish..." />
             <button><Send size={18} /> SEND TEST MSG</button>
           </div>
-        </section>
+        </section> */}
       </main>
     </div>
   );
