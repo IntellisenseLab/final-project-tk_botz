@@ -94,7 +94,7 @@ class LIDAR:
 
 
 if __name__ == "__main__":
-    lidar = LIDAR(serial_port="/dev/ttyUSB0", baudrate=230400)
+    lidar = LIDAR(serial_port="/dev/lidar", baudrate=230400)
     try:
         while True:
             data = lidar.read_lidar_data()
