@@ -23,7 +23,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'lidar_port',
-            default_value='/dev/ttyUSB1',
+            default_value='/dev/lidar',
             description='Serial port for LiDAR',
         ),
         
