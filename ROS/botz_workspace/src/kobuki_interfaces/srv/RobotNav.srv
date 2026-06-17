@@ -1,0 +1,6 @@
+# Request
+geometry_msgs/PoseStamped pose
+---
+# Response
+bool success
+string message

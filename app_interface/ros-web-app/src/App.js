@@ -111,11 +111,13 @@ function App() {
   const [actionStatus, setActionStatus] = useState("Idle");
   const [distanceRemaining, setDistanceRemaining] = useState(0);
   const [goalInput, setGoalInput] = useState({ x: 0, y: 0 });
+  const [feedbackMessages, setFeedbackMessages] = useState([]);
   
   const rosRef = useRef(null);
   const chatterListenerRef = useRef(null);
   const imageListenerRef = useRef(null);
   const odomListenerRef = useRef(null); // Ref for cleanup
+  const navActionClientRef = useRef(null);
 
   // Connect / Reconnect to ROS 
   const connectToROS = () => {
@@ -128,8 +130,9 @@ function App() {
     setImageUrl(null);
 
     const rosInstance = new ROSLIB.Ros({
-      // url: 'ws://localhost:9090'
-      url: 'ws://10.210.180.51:9090'
+      // url: 'ws://${window.location.hostname}:9090'
+      url: 'ws://10.110.205.51:9090'
+      // url: 'ws://10.210.180.51:9090'
     });
 
     rosInstance.on('connection', () => {
@@ -138,9 +141,10 @@ function App() {
       setStatusMessage('Connected to the BOT');
       rosRef.current = rosInstance;
 
-      subscribeToChatter(rosInstance);
+      // subscribeToChatter(rosInstance);
       subscribeToCamera(rosInstance);
       subscribeToOdom(rosInstance);
+      subscribeToFeedback(rosInstance);
     });
 
     rosInstance.on('error', (error) => {
@@ -157,21 +161,21 @@ function App() {
   };
 
   // Subscribe to chatter
-  const subscribeToChatter = (rosInstance) => {
-    if (chatterListenerRef.current) chatterListenerRef.current.unsubscribe();
+  // const subscribeToChatter = (rosInstance) => {
+  //   if (chatterListenerRef.current) chatterListenerRef.current.unsubscribe();
 
-    const chatterTopic = new ROSLIB.Topic({
-      ros: rosInstance,
-      name: '/chatter',
-      messageType: 'std_msgs/msg/String'
-    });
+  //   const chatterTopic = new ROSLIB.Topic({
+  //     ros: rosInstance,
+  //     name: '/chatter',
+  //     messageType: 'std_msgs/msg/String'
+  //   });
 
-    chatterListenerRef.current = chatterTopic;
+  //   chatterListenerRef.current = chatterTopic;
 
-    chatterTopic.subscribe((message) => {
-      setMessages(prev => [...prev.slice(-15), message.data]);
-    });
-  };
+  //   chatterTopic.subscribe((message) => {
+  //     setMessages(prev => [...prev.slice(-15), message.data]);
+  //   });
+  // };
 
   // Subscribe to Camera
   const subscribeToCamera = (rosInstance) => {
@@ -216,7 +220,7 @@ function App() {
   const getYawFromQuaternion = (q) => {
     const siny_cosp = 2 * (q.w * q.z + q.x * q.y);
     const cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-    console.log('Quaternion:', q, 'Siny:', siny_cosp, 'Cosy:', cosy_cosp)
+    // console.log('Quaternion:', q, 'Siny:', siny_cosp, 'Cosy:', cosy_cosp)
     // const cosy_cosp = (q.w * q.w) - (q.x * q.x) - (q.y * q.y) + (q.z * q.z);
     const yaw = Math.atan2(siny_cosp, cosy_cosp);
     return (yaw * 0.18) / Math.PI; // Convert to degrees
@@ -243,7 +247,57 @@ function App() {
       });
     });
   };
-  
+
+  // Subscribe to feedback topic
+  const subscribeToFeedback = (rosInstance) => {
+    const feedbackTopic = new ROSLIB.Topic({
+      ros: rosInstance,
+      name: '/robot_nav/feedback',
+      messageType: 'kobuki_interfaces/msg/RobotNavFeedback'
+    });
+
+    feedbackTopic.subscribe((msg) => {
+      setFeedbackMessages(prev => [...prev.slice(-8), msg]);
+      if (msg.distance_remaining !== undefined) {
+        setDistanceRemaining(msg.distance_remaining.toFixed(2));
+      }
+    });
+  };
+
+  // Send Goal using Service
+  const sendNavGoal = () => {
+    const { x, y } = goalInput;
+
+    if (!rosRef.current || !isConnected) {
+      alert("Not connected to robot");
+      return;
+    }
+
+    const client = new ROSLIB.Service({
+      ros: rosRef.current,
+      name: '/robot_nav',
+      serviceType: 'kobuki_interfaces/srv/RobotNav'
+    });
+
+    const request ={
+      pose: {
+        header: { frame_id: 'map' },
+        pose: {
+          position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
+          orientation: { x: 0, y: 0, z: 0, w: 1.0 }
+        }
+      }
+    };
+
+    client.callService(request, (response) => {
+      console.log('Service Response:', response);
+      setActionStatus(response.success ? "Goal Completed Successfully!" : "Goal Failed");
+    });
+
+    setActionStatus("Goal Sent...");
+  };
+
+
   // Initial connection
   useEffect(() => {
     connectToROS();
@@ -256,52 +310,6 @@ function App() {
     };
   }, []);
 
-  //goal-oriented navigation
-  const sendNavGoal = () => {
-    const { x, y } = goalInput;
-    if (!rosRef.current || !isConnected) return;
-
-    // 1. Create the Action Client
-    const navActionClient = new ROSLIB.Action({
-      ros: rosRef.current,
-      name: '/navigate_to_pose',
-      actionName: 'nav2_msgs/action/NavigateToPose'
-    });
-
-    // 2. Define the Goal (X=0, Y=4)
-const goal = new ROSLIB.Goal({
-    actionClient: navActionClient,
-    goalMessage: {
-      pose: {
-        header: { frame_id: 'map', stamp: { sec: 0, nanosec: 0 } },
-        pose: {
-          position: { x: parseFloat(x), y: parseFloat(y), z: 0 },
-          orientation: { x: 0, y: 0, z: 0, w: 1 }
-        }
-      }
-    }
-  });
-
-    // 3. Listen for Feedback (Live updates)
-    goal.on('feedback', (feedback) => {
-      // Nav2 sends 'distance_remaining' in its feedback message
-      if (feedback.distance_remaining) {
-        setDistanceRemaining(feedback.distance_remaining.toFixed(2));
-        setActionStatus("Moving...");
-      }
-    });
-
-    // 4. Listen for the Final Result
-    goal.on('result', (result) => {
-      setActionStatus("Goal Reached!");
-      setDistanceRemaining(0);
-    });
-
-    // 5. Send it!
-    goal.send();
-    setActionStatus("Goal Sent");
-  };
-
   // Publish cmd_vel
   const publishCmdVel = useCallback((linearX, angularZ) => {
     if (!rosRef.current || !isConnected) return;
@@ -312,10 +320,10 @@ const goal = new ROSLIB.Goal({
       messageType: 'geometry_msgs/msg/Twist'
     });
 
-    const twist = {
+    const twist =({
       linear: { x: parseFloat(linearX.toFixed(3)), y: 0, z: 0 },
       angular: { x: 0, y: 0, z: parseFloat(angularZ.toFixed(3)) }
-    };
+    });
 
     cmdVel.publish(twist);
     setCurrentCmd({ 
@@ -397,8 +405,8 @@ return (
               <div 
                 className="robot-marker" 
                 style={{ 
-                  left: `calc(50% + ${odomData.x * 40}px)`, 
-                  top: `calc(50% - ${odomData.y * 40}px)`,
+                  left: `calc(50% + ${odomData.x * 100}px)`, 
+                  top: `calc(50% - ${odomData.y * 100}px)`,
                   transform: `translate(-50%, -50%) rotate(${-odomData.theta}deg)` 
                 }}
               >
@@ -406,9 +414,9 @@ return (
               </div>
               
               {/* Coordinate Labels */}
-              {/* <div className="coords-overlay">
+              <div className="coords-overlay">
                 X: {odomData.x} | Y: {odomData.y} | θ: {odomData.theta}°
-              </div> */}
+              </div>
             </div>
           </div>
         </section>
@@ -469,6 +477,19 @@ return (
             </div>
           </section>
         </section> 
+
+        {/* Feedback Log */}
+        <section className="card messaging-card">
+          <div className="card-header">NAVIGATION FEEDBACK<span>(/robot_nav/feedback)</span></div>
+          {/* <div style={{ maxHeight: '300px', overflow: 'auto', padding: '10px' }}> */}
+          <div className="msg-list">
+            {feedbackMessages.map((msg, index) => (
+              <div key={index}>{msg.distance_remaining}m remaining</div>
+            ))}
+          </div>
+        </section>
+
+        
         {/* Telemetry */}
         {/* <section className="card messaging-card">
           <div className="card-header">TELEMETRY & MESSAGES <span>(/chatter)</span></div>
