@@ -33,8 +33,17 @@ def generate_launch_description():
             description='Use simulation time',
         ),
 
+        # Kobuki driver + EKF fusion
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(kobuki_ekf_launch),
+            launch_arguments=[
+                ('port', LaunchConfiguration('kobuki_port')),
+                ('use_sim_time', LaunchConfiguration('use_sim_time')),
+            ],
+        ),
+
         # Static transform: laser frame relative to base_link
-        # Start this before SLAM so the first scans can be transformed immediately.
+        # Keep this available before SLAM starts so scans can be transformed immediately.
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
@@ -51,15 +60,6 @@ def generate_launch_description():
             parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
             name='laser_tf_publisher',
             output='screen',
-        ),
-        
-        # Kobuki driver + EKF fusion
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(kobuki_ekf_launch),
-            launch_arguments=[
-                ('port', LaunchConfiguration('kobuki_port')),
-                ('use_sim_time', LaunchConfiguration('use_sim_time')),
-            ],
         ),
         
         # LiDAR driver
