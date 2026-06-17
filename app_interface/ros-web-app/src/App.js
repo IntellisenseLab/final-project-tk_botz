@@ -130,8 +130,8 @@ function App() {
     setImageUrl(null);
 
     const rosInstance = new ROSLIB.Ros({
-      url: 'ws://${window.location.hostname}:9090'
-      // url: 'ws://localhost:9090'
+      // url: 'ws://${window.location.hostname}:9090'
+      url: 'ws://10.110.205.51:9090'
       // url: 'ws://10.210.180.51:9090'
     });
 
