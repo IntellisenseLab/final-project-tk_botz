@@ -48,7 +48,7 @@ class KobukiState:
 class KobukiDriver:
     def __init__(
         self,
-        port='/dev/ttyUSB0',
+        port='/dev/kobuki',
         cmd_timeout=0.5,
         cmd_rate=10,
         wheel_separation=0.23,
@@ -58,7 +58,7 @@ class KobukiDriver:
         Initialize Kobuki driver with command handling.
         
         Args:
-            port: Serial port (default '/dev/ttyUSB0')
+            port: Serial port (default '/dev/kobuki')
             cmd_timeout: Command timeout in seconds (default 0.5s)
             cmd_rate: Command send rate in Hz (default 10 Hz)
             wheel_separation: Distance between wheels in meters (default 0.23)
@@ -316,7 +316,7 @@ class KobukiDriver:
 if __name__ == "__main__":
     # Create driver with custom command timeout and rate (optional)
     robot = KobukiDriver(
-        port='/dev/ttyUSB0',
+        port='/dev/kobuki',  # Adjust as needed
         cmd_timeout=0.5,   # 0.5s timeout before stopping
         cmd_rate=10        # Send commands at 10 Hz
     )

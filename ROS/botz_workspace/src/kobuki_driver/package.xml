@@ -13,7 +13,8 @@
   <test_depend>python3-pytest</test_depend>
 
   <depend>serial</depend>
-  <depend></depend>
+  <depend>robot_localization</depend>
+  <depend>slam_toolbox</depend>
 
   <export>
     <build_type>ament_python</build_type>
