@@ -1,0 +1,2 @@
+unique_identifier_msgs/UUID goal_id
+geometry_msgs/PoseStamped pose
