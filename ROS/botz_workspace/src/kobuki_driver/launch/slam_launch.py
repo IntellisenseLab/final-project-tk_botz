@@ -39,6 +39,7 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='map_odom_tf',
             arguments=['0', '0', '0', '0', '0', '0', '1', 'map', 'odom'],
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
             output='screen',
         ),
     ])

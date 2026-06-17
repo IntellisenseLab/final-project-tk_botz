@@ -26,6 +26,11 @@ def generate_launch_description():
             default_value='10.0',
             description='LiDAR publish rate in Hz',
         ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation time',
+        ),
         Node(
             package='lidar_driver',
             executable='lidar_node',
@@ -38,6 +43,7 @@ def generate_launch_description():
                 'publish_rate': LaunchConfiguration('publish_rate'),
                 'range_min': 0.05,
                 'range_max': 8.0,
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
             }],
         ),
     ])

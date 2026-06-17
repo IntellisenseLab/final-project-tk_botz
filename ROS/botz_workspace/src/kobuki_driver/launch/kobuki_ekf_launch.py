@@ -22,6 +22,11 @@ def generate_launch_description():
             default_value='0.5',
             description='Command timeout in seconds',
         ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation time',
+        ),
         
         # Kobuki driver node
         Node(
@@ -34,11 +39,13 @@ def generate_launch_description():
                 {'cmd_timeout': LaunchConfiguration('cmd_timeout')},
                 {'cmd_rate': 10},
                 {'odom_pub_rate': 10},
+                {'use_sim_time': LaunchConfiguration('use_sim_time')},
             ],
         ),
         
         # Include EKF launch file
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(ekf_launch_file),
+            launch_arguments=[('use_sim_time', LaunchConfiguration('use_sim_time'))],
         ),
     ])
