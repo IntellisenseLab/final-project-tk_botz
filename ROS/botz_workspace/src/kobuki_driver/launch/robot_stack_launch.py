@@ -27,39 +27,53 @@ def generate_launch_description():
             default_value='/dev/lidar',
             description='Serial port for LiDAR',
         ),
-        
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+            description='Use simulation time',
+        ),
+
         # Kobuki driver + EKF fusion
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(kobuki_ekf_launch),
-            launch_arguments=[('port', LaunchConfiguration('kobuki_port'))],
+            launch_arguments=[
+                ('port', LaunchConfiguration('kobuki_port')),
+                ('use_sim_time', LaunchConfiguration('use_sim_time')),
+            ],
+        ),
+
+        # Static transform: laser frame relative to base_link
+        # Keep this available before SLAM starts so scans can be transformed immediately.
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            arguments=[
+                '--x', '0.1',
+                '--y', '0.0',
+                '--z', '0.05',
+                '--yaw', '0.0',
+                '--pitch', '0.0',
+                '--roll', '0.0',
+                '--frame-id', 'base_link',
+                '--child-frame-id', 'laser',
+            ],
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+            name='laser_tf_publisher',
+            output='screen',
         ),
         
         # LiDAR driver
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(lidar_launch),
-            launch_arguments=[('serial_port', LaunchConfiguration('lidar_port'))],
+            launch_arguments=[
+                ('serial_port', LaunchConfiguration('lidar_port')),
+                ('use_sim_time', LaunchConfiguration('use_sim_time')),
+            ],
         ),
         
         # SLAM Toolbox
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(slam_launch),
-        ),
-        
-        # Static transform: laser frame relative to base_link
-        # Laser mounted 0.1m forward (X) and 0.05m above (Z) the robot center
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            arguments=[
-                '0.1',      # x offset (meters forward)
-                '0.0',      # y offset (meters left/right)
-                '0.05',     # z offset (meters above)
-                '0.0',      # roll
-                '0.0',      # pitch
-                '0.0',      # yaw
-                'base_link',  # parent frame
-                'laser'       # child frame
-            ],
-            name='laser_tf_publisher',
+            launch_arguments=[('use_sim_time', LaunchConfiguration('use_sim_time'))],
         ),
     ])

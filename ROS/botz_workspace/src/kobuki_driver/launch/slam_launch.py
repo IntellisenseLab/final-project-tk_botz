@@ -30,15 +30,4 @@ def generate_launch_description():
                 ('/odom', '/odometry/filtered'),
             ],
         ),
-        
-        # Static TF publisher: map -> odom (for initial localization)
-        # In a real system, this would be published by slam_toolbox
-        # but in async mode we often want to start with identity or a known pose
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='map_odom_tf',
-            arguments=['0', '0', '0', '0', '0', '0', '1', 'map', 'odom'],
-            output='screen',
-        ),
     ])
