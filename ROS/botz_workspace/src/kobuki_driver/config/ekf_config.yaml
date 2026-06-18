@@ -20,11 +20,12 @@ ekf_filter_node:
     # Odom input (wheel odometry)
     odom0: /odom
     # Fusing X velocity, Y velocity, and Yaw angular velocity
-    odom0_config: [0, 0, 0, 
-                   0, 0, 0, 
-                   1, 1, 0, 
-                   0, 0, 1, 
-                   0, 0, 0]
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true, true, false,
+                   false, false, false,
+                   false, false, false]
+
     odom0_queue_size: 10
     odom0_nodelay: false
     odom0_relative: false
@@ -32,11 +33,11 @@ ekf_filter_node:
     # IMU input
     imu0: /imu
     # Fusing relative-start absolute Yaw, and Yaw angular velocity
-    imu0_config: [0, 0, 0,
-                  0, 0, 1,
-                  0, 0, 0,
-                  0, 0, 1,
-                  0, 0, 0] # Set the last row first element to 1 if fusing X acceleration
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false] # Set the last row first element to 1 if fusing X acceleration
     imu0_queue_size: 10
     imu0_nodelay: false
     imu0_relative: true

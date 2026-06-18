@@ -155,12 +155,18 @@ class KobukiDriver:
                     self.state.basic.updated_at = packet_ts
                     self._update_odom(l_enc, r_enc, packet_ts)
 
-            elif sub_id == 0x0D: # Inertial Sensor (Gyro)
-                angle, rate = struct.unpack('<hh', sub_data[0:4])
+
+            elif sub_id == 0x0D: # 3D Inertial Sensor (Gyro)
+                # Unpack 3 signed shorts (6 bytes) for X, Y, and Z raw data
+                raw_x, raw_y, raw_z = struct.unpack('<hhh', sub_data[2:8])
+
+                # Kobuki conversion constant: 0.00875 deg/s per digit
+                digit_to_dps = 0.00875
+
                 with self._state_lock:
-                    self.state.inertial.gyro_angle = angle / 100.0 # deg
-                    self.state.inertial.gyro_rate = rate / 100.0   # deg/s
-                    self.state.inertial.updated_at = packet_ts
+                    # Apply the 90-degree CCW Z-axis rotation matrix mapping
+                    self.state.inertial.gyro_rate =  digit_to_dps * raw_z
+
 
             i += (2 + sub_len)
 
@@ -330,7 +336,6 @@ if __name__ == "__main__":
             robot.set_velocity(100, 0.5)  # Drive in a slow circle
             
             data = robot.get_state()
-            print(f"Pos: {data['x']:.2f}, {data['y']:.2f} | Gyro: {data['gyro_angle']:.1f}")
             
             time.sleep(0.2)  # Update display at 5 Hz
     except KeyboardInterrupt:

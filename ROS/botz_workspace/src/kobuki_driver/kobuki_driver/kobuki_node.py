@@ -91,7 +91,7 @@ class KobukiRosNode(Node):
         imu.header.frame_id = 'base_link'
 
         # Put orientation from pose (yaw) into IMU orientation
-        imu.orientation = q
+        imu.orientation_covariance[0] = -1
 
         # Gyro: driver provides gyro_rate in deg/s; convert to rad/s
         gyro_deg_s = state.get('gyro_rate', 0.0)
