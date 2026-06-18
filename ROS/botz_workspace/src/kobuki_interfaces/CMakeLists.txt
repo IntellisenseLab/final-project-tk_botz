@@ -42,6 +42,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotNavFeedback.msg"
   "msg/RobotNavResult.msg"
   "srv/RobotNav.srv"
+  "srv/CancelRobotNav.srv"
   DEPENDENCIES geometry_msgs
   DEPENDENCIES unique_identifier_msgs
 )
