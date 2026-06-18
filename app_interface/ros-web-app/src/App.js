@@ -3,102 +3,105 @@ import * as ROSLIB from 'roslib';
 import { Power, MonitorPlay, Send } from 'lucide-react';
 import './App.css';
 
-const VirtualJoystick = ({ onMove, onStop }) => {
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const joystickRef = useRef(null);
-  
-  // Configuration
-  const maxRadius = 70; // Max pixel distance the stick can travel
-  const maxLinear = 0.4; // Max m/s
-  const maxAngular = 0.6; // Max rad/s
+const controller_ip="10.110.205.162"
+const rpi_ip="10.110.205.51"
 
-  const handlePointerDown = (e) => {
-    setIsDragging(true);
-    updateJoystick(e);
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isDragging) return;
-    updateJoystick(e);
-  };
-
-  const handlePointerUp = () => {
-    setIsDragging(false);
-    setPosition({ x: 0, y: 0 });
-    onStop(); // Publish zero velocities when released
-  };
-
-  const updateJoystick = useCallback((e) => {
-    if (!joystickRef.current) return;
+  const VirtualJoystick = ({ onMove, onStop }) => {
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const joystickRef = useRef(null);
     
-    const rect = joystickRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
+    // Configuration
+    const maxRadius = 70; // Max pixel distance the stick can travel
+    const maxLinear = 0.4; // Max m/s
+    const maxAngular = 0.6; // Max rad/s
 
-    // Support both mouse and touch events
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-    let dx = clientX - centerX;
-    let dy = clientY - centerY;
-
-    // Calculate distance from center
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Clamp the joystick to the circular boundary
-    if (distance > maxRadius) {
-      const angle = Math.atan2(dy, dx);
-      dx = Math.cos(angle) * maxRadius;
-      dy = Math.sin(angle) * maxRadius;
-    }
-
-    setPosition({ x: dx, y: dy });
-
-    // Mathematical Mapping to ROS Twist values
-    // Browser Y is down (positive), so we invert dy for forward movement
-    // Browser X is right (positive), so we invert dx for standard left-turn (CCW) rotation
-    const linearVel = -(dy / maxRadius) * maxLinear;
-    const angularVel = -(dx / maxRadius) * maxAngular;
-
-    // Send the combined values back to the main app
-    onMove(linearVel, angularVel);
-  }, [maxRadius, maxLinear, maxAngular, onMove]);
-
-  // Global event listeners to handle dragging outside the element bounds
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-    } else {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    }
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+    const handlePointerDown = (e) => {
+      setIsDragging(true);
+      updateJoystick(e);
     };
-  }, [isDragging, handlePointerMove]);
 
-  return (
-    <div 
-      className="joystick-base" 
-      ref={joystickRef}
-      onPointerDown={handlePointerDown}
-      style={{ touchAction: 'none' }} // Prevents browser scrolling on mobile devices
-    >
+    const handlePointerMove = (e) => {
+      if (!isDragging) return;
+      updateJoystick(e);
+    };
+
+    const handlePointerUp = () => {
+      setIsDragging(false);
+      setPosition({ x: 0, y: 0 });
+      onStop(); // Publish zero velocities when released
+    };
+
+    const updateJoystick = useCallback((e) => {
+      if (!joystickRef.current) return;
+      
+      const rect = joystickRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      // Support both mouse and touch events
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      let dx = clientX - centerX;
+      let dy = clientY - centerY;
+
+      // Calculate distance from center
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Clamp the joystick to the circular boundary
+      if (distance > maxRadius) {
+        const angle = Math.atan2(dy, dx);
+        dx = Math.cos(angle) * maxRadius;
+        dy = Math.sin(angle) * maxRadius;
+      }
+
+      setPosition({ x: dx, y: dy });
+
+      // Mathematical Mapping to ROS Twist values
+      // Browser Y is down (positive), so we invert dy for forward movement
+      // Browser X is right (positive), so we invert dx for standard left-turn (CCW) rotation
+      const linearVel = -(dy / maxRadius) * maxLinear;
+      const angularVel = -(dx / maxRadius) * maxAngular;
+
+      // Send the combined values back to the main app
+      onMove(linearVel, angularVel);
+    }, [maxRadius, maxLinear, maxAngular, onMove]);
+
+    // Global event listeners to handle dragging outside the element bounds
+    useEffect(() => {
+      if (isDragging) {
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+      } else {
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+      }
+      return () => {
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+      };
+    }, [isDragging, handlePointerMove]);
+
+    return (
       <div 
-        className="joystick-stick" 
-        style={{ 
-          transform: `translate(${position.x}px, ${position.y}px)`,
-          transition: isDragging ? 'none' : 'transform 0.2s ease-out' 
-        }}
+        className="joystick-base" 
+        ref={joystickRef}
+        onPointerDown={handlePointerDown}
+        style={{ touchAction: 'none' }} // Prevents browser scrolling on mobile devices
       >
-        <div className="joystick-inner-ring"></div>
+        <div 
+          className="joystick-stick" 
+          style={{ 
+            transform: `translate(${position.x}px, ${position.y}px)`,
+            transition: isDragging ? 'none' : 'transform 0.2s ease-out' 
+          }}
+        >
+          <div className="joystick-inner-ring"></div>
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
@@ -109,13 +112,14 @@ function App() {
   const [telemetry, setTelemetry] = useState([]);
   const [odomData, setOdomData] = useState({ x: 0, y: 0, theta: 0 });
   const [actionStatus, setActionStatus] = useState("Idle");
+  const [isNavigating, setIsNavigating] = useState(false);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
   const [goalInput, setGoalInput] = useState({ x: 0, y: 0 });
   const [feedbackMessages, setFeedbackMessages] = useState([]);
   
   const rosRef = useRef(null);
   const chatterListenerRef = useRef(null);
-  const imageListenerRef = useRef(null);
+  // const imageListenerRef = useRef(null);
   const odomListenerRef = useRef(null); // Ref for cleanup
   const navActionClientRef = useRef(null);
 
@@ -131,7 +135,8 @@ function App() {
 
     const rosInstance = new ROSLIB.Ros({
       // url: 'ws://${window.location.hostname}:9090'
-      url: 'ws://10.110.205.51:9090'
+      // url: 'ws://10.110.205.51:9090'
+      url:`ws://${controller_ip}:9090`
       // url: 'ws://10.210.180.51:9090'
     });
 
@@ -142,7 +147,7 @@ function App() {
       rosRef.current = rosInstance;
 
       // subscribeToChatter(rosInstance);
-      subscribeToCamera(rosInstance);
+      // subscribeToCamera(rosInstance);
       subscribeToOdom(rosInstance);
       subscribeToFeedback(rosInstance);
     });
@@ -155,6 +160,7 @@ function App() {
 
     rosInstance.on('close', () => {
       setIsConnected(false);
+      setIsNavigating(false);
       setStatusMessage('Disconnected from BOT');
       rosRef.current = null;
     });
@@ -178,43 +184,43 @@ function App() {
   // };
 
   // Subscribe to Camera
-  const subscribeToCamera = (rosInstance) => {
-    if (imageListenerRef.current) imageListenerRef.current.unsubscribe();
+  // const subscribeToCamera = (rosInstance) => {
+  //   if (imageListenerRef.current) imageListenerRef.current.unsubscribe();
 
-    const imageTopic = new ROSLIB.Topic({
-      ros: rosInstance,
-      name: '/image_raw',
-      messageType: 'sensor_msgs/msg/Image'
-    });
+  //   const imageTopic = new ROSLIB.Topic({
+  //     ros: rosInstance,
+  //     name: '/image_raw',
+  //     messageType: 'sensor_msgs/msg/Image'
+  //   });
 
-    imageListenerRef.current = imageTopic;
+  //   imageListenerRef.current = imageTopic;
 
-    imageTopic.subscribe((message) => {
-      try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+  //   imageTopic.subscribe((message) => {
+  //     try {
+  //       const canvas = document.createElement('canvas');
+  //       const ctx = canvas.getContext('2d');
 
-        canvas.width = message.width;
-        canvas.height = message.height;
+  //       canvas.width = message.width;
+  //       canvas.height = message.height;
 
-        const imageData = ctx.createImageData(message.width, message.height);
-        const data = imageData.data;
+  //       const imageData = ctx.createImageData(message.width, message.height);
+  //       const data = imageData.data;
 
-        for (let i = 0; i < message.data.length; i += 3) {
-          const idx = Math.floor(i / 3) * 4;
-          data[idx]     = message.data[i];     // R
-          data[idx + 1] = message.data[i + 1]; // G
-          data[idx + 2] = message.data[i + 2]; // B
-          data[idx + 3] = 255;                 // Alpha
-        }
+  //       for (let i = 0; i < message.data.length; i += 3) {
+  //         const idx = Math.floor(i / 3) * 4;
+  //         data[idx]     = message.data[i];     // R
+  //         data[idx + 1] = message.data[i + 1]; // G
+  //         data[idx + 2] = message.data[i + 2]; // B
+  //         data[idx + 3] = 255;                 // Alpha
+  //       }
 
-        ctx.putImageData(imageData, 0, 0);
-        setImageUrl(canvas.toDataURL('image/jpeg', 0.85));
-      } catch (err) {
-        console.error('Image processing error:', err);
-      }
-    });
-  };
+  //       ctx.putImageData(imageData, 0, 0);
+  //       setImageUrl(canvas.toDataURL('image/jpeg', 0.85));
+  //     } catch (err) {
+  //       console.error('Image processing error:', err);
+  //     }
+  //   });
+  // };
 
   // Helper to convert Quaternion to Yaw (Degrees)
   const getYawFromQuaternion = (q) => {
@@ -261,6 +267,12 @@ function App() {
       if (msg.distance_remaining !== undefined) {
         setDistanceRemaining(msg.distance_remaining.toFixed(2));
       }
+      if (msg.status) {
+        setActionStatus(msg.status);
+        if (msg.status === 'Goal reached successfully' || msg.status === 'Goal canceled') {
+          setIsNavigating(false);
+        }
+      }
     });
   };
 
@@ -291,10 +303,32 @@ function App() {
 
     client.callService(request, (response) => {
       console.log('Service Response:', response);
-      setActionStatus(response.success ? "Goal Completed Successfully!" : "Goal Failed");
+      setActionStatus(response.message || (response.success ? 'Goal accepted' : 'Goal failed'));
+      setIsNavigating(response.success);
     });
 
     setActionStatus("Goal Sent...");
+  };
+
+  const cancelNavGoal = () => {
+    if (!rosRef.current || !isConnected) {
+      alert('Not connected to robot');
+      return;
+    }
+
+    const client = new ROSLIB.Service({
+      ros: rosRef.current,
+      name: '/robot_nav/cancel',
+      serviceType: 'kobuki_interfaces/srv/CancelRobotNav'
+    });
+
+    client.callService({}, (response) => {
+      console.log('Cancel Response:', response);
+      setActionStatus(response.message || (response.success ? 'Cancel requested' : 'Cancel failed'));
+      if (response.success) {
+        setIsNavigating(false);
+      }
+    });
   };
 
 
@@ -305,7 +339,7 @@ function App() {
     return () => {
       if (rosRef.current) rosRef.current.close();
       if (chatterListenerRef.current) chatterListenerRef.current.unsubscribe();
-      if (imageListenerRef.current) imageListenerRef.current.unsubscribe();
+      // if (imageListenerRef.current) imageListenerRef.current.unsubscribe();
       if (odomListenerRef.current) odomListenerRef.current.unsubscribe();
     };
   }, []);
@@ -381,19 +415,37 @@ return (
           </div>
         </section>
 
-        {/* Live Camera Feed */}
+
+        {/* Live Camera Feed - MJPEG Stream */}
         <section className="card camera-card">
-          <div className="card-header">LIVE CAMERA FEED <span>(/image_raw)</span></div>
-          <div className="camera-viewport">
-            {imageUrl ? (
-              <img src={imageUrl} alt="ROS Camera Feed" />
-            ) : (
-              <div className="waiting-overlay">Waiting for stream...</div>
-            )}
-            <div className="camera-overlay top-left">FPS: 30</div>
-            <div className="camera-overlay bottom-left">FPS: 30<br/>RESOLUTION: 1280x720</div>
+          <div className="card-header">
+            LIVE CAMERA FEED <span>(MJPEG Stream)</span>
           </div>
-          <button className="stream-btn"><MonitorPlay size={18} /> START/STOP STREAM</button>
+          
+          <div className="camera-viewport">
+            <img 
+              src={`http://${rpi_ip}:8080/stream?topic=/image_raw&type=mjpeg&width=640&height=480&quality=50`}
+              alt="Kinect Live Stream"
+              style={{ width: '100%', height: 'auto', maxHeight: '500px', objectFit: 'contain',backgroundColor: '#000' }}
+              onError={(e) => {
+                e.target.src = ''; // Clear on error
+                console.error("Stream connection failed");
+              }}
+            />
+            
+            <div className="camera-overlay top-left">LIVE</div>
+            <div className="camera-overlay bottom-left">
+              RES: 640x480<br/>
+              FPS: ~12-15
+            </div>
+          </div>
+
+          <button 
+            className="stream-btn"
+            onClick={() => window.location.reload()} // Simple refresh if needed
+          >
+            <MonitorPlay size={18} /> RESTART STREAM
+          </button>
         </section>
 
         {/* Simple Visual Representation */}
@@ -470,6 +522,15 @@ return (
                 START NAVIGATION
               </button>
 
+              <button
+                onClick={cancelNavGoal}
+                className="go-button"
+                disabled={!isNavigating}
+                style={{ marginTop: '10px', opacity: isNavigating ? 1 : 0.5 }}
+              >
+                CANCEL GOAL
+              </button>
+
               <div className="action-feedback">
                 Status: <span>{actionStatus}</span> <br/>
                 Distance: <span>{distanceRemaining}m</span>
@@ -484,7 +545,7 @@ return (
           {/* <div style={{ maxHeight: '300px', overflow: 'auto', padding: '10px' }}> */}
           <div className="msg-list">
             {feedbackMessages.map((msg, index) => (
-              <div key={index}>{msg.distance_remaining}m remaining</div>
+              <div key={index}>{msg.status || `${msg.distance_remaining}m remaining`}</div>
             ))}
           </div>
         </section>

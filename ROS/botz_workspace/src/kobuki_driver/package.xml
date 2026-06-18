@@ -12,6 +12,11 @@
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
 
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>kobuki_interfaces</depend>
   <depend>serial</depend>
   <depend>robot_localization</depend>
   <depend>slam_toolbox</depend>

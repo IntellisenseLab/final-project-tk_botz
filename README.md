@@ -1,6 +1,6 @@
-# QBot — ROS 2 Mobile Robot Platform
+# TK Botz — Kobuki Robot Control System
 
-A complete software interface system for a ROS 2-based mobile robot with simulation and real-world deployment capabilities. Includes a custom web UI that replaces RViz and teleop tools, built on React + roslibjs + WebSocket communication via `rosbridge_server`.
+A complete ROS 2 control system for a real **Kobuki mobile robot** with **LiDAR** and **Kinect camera**. Includes a custom React web interface for teleoperation and autonomous navigation, communicating via rosbridge_server over WebSocket.
 
 ---
 
@@ -9,60 +9,73 @@ A complete software interface system for a ROS 2-based mobile robot with simulat
 - [Overview](#overview)
 - [System architecture](#system-architecture)
 - [Repository structure](#repository-structure)
-- [Prerequisites](#prerequisites)
+- [Hardware requirements](#hardware-requirements)
 - [Installation](#installation)
 - [Running the system](#running-the-system)
 - [Web interface](#web-interface)
 - [ROS 2 interfaces](#ros-2-interfaces)
-- [Node reference](#node-reference)
-- [Configuration](#configuration)
-- [Communication architecture](#communication-architecture)
-- [Simulation vs real-world deployment](#simulation-vs-real-world-deployment)
-- [Extending the system](#extending-the-system)
 - [Troubleshooting](#troubleshooting)
-- [License](#license)
 
 ---
 
 ## Overview
 
-This project implements a layered software architecture for a differential-drive mobile robot (QBot). The system covers four layers:
+TK Botz is a production robot control stack for the **Kobuki base** integrated with:
 
-1. **Web interface layer** — React-based dashboard replacing RViz and teleop_twist_keyboard
-2. **Interface contract layer** — Custom ROS 2 actions, messages, and services
-3. **Application behavior layer** — Navigation server, mapper, odometry, and orchestration nodes
-4. **Robot and simulation infrastructure** — URDF/SDF models, Gazebo, ros2_control, and launch system
+- **LiDAR** — 360° 2D scanning for SLAM and obstacle detection
+- **Kinect camera** — RGB + depth stream for vision tasks
+- **EKF + SLAM Toolbox** — Localization and real-time mapping
+- **React web UI** — Browser-based dashboard for teleoperation and autonomous navigation
+- **Service-based navigation** — Safe goal submission and cancellation without action clients
 
 ---
 
 ## System architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│               Web Interface (React + roslibjs)          │
-│   Map panel │ Control panel │ Status panel │ Camera feed │
-└────────────────────────┬────────────────────────────────┘
-                         │ WebSocket (JSON)
-┌────────────────────────▼────────────────────────────────┐
-│              rosbridge_server  (port 9090)               │
-└────────────────────────┬────────────────────────────────┘
-                         │ ROS 2 topics / services / actions
-┌────────────────────────▼────────────────────────────────┐
-│              Interface contract layer                    │
-│  Navigation.action │ Position.msg │ GetLastPositions.srv │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│              Application behavior layer                  │
-│  navigation_server │ qbot_controller │ mapper_node       │
-│  odom_node │ lab_06_simulation_launch                    │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│          Robot and simulation infrastructure             │
-│  qbot.urdf │ qbot.sdf │ qbot_world.sdf │ ros_gz_bridge  │
-│  robot_state_publisher │ ros2_control │ Gazebo           │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph "Browser (Laptop)"
+        REACT["React Web UI<br/>Manual teleoperation<br/>Goal submission<br/>Live odometry display"]
+    end
+    
+    subgraph "Network (WebSocket)"
+        ROSBRIDGE["rosbridge_server<br/>port 9090"]
+    end
+    
+    subgraph "Raspberry Pi / Controller (ROS 2)"
+        KOBUKI["Kobuki Driver Node<br/>kuboki_driver.py"]
+        NAV["Navigation Service<br/>kobuki_nav_server.py"]
+        EKF["EKF Node<br/>robot_localization"]
+        SLAM["SLAM Toolbox<br/>async mode"]
+        LIDAR["LiDAR Driver Node<br/>lidar_node.py"]
+        KINECT["Kinect Camera Node<br/>kinect_ros2_node"]
+    end
+    
+    subgraph "Hardware"
+        KOBUKI_HW["Kobuki Base<br/>Differential drive"]
+        LIDAR_HW["LiDAR<br/>360° scan"]
+        CAMERA_HW["Kinect<br/>RGB+Depth"]
+    end
+    
+    REACT -->|WebSocket| ROSBRIDGE
+    ROSBRIDGE -->|/cmd_vel| KOBUKI
+    ROSBRIDGE -->|/robot_nav<br/>/robot_nav/cancel| NAV
+    ROSBRIDGE -->|/robot_nav/feedback<br/>/odometry/filtered| REACT
+    ROSBRIDGE -->|HTTP MJPEG| KINECT
+    
+    KOBUKI -->|/odometry<br/>/tf| EKF
+    LIDAR -->|/scan| SLAM
+    EKF -->|/odometry/filtered| SLAM
+    SLAM -->|/map<br/>map->odom TF| KOBUKI
+    
+    KOBUKI -->|Motor commands| KOBUKI_HW
+    KOBUKI_HW -->|Encoders| KOBUKI
+    
+    LIDAR -->|Serial| LIDAR_HW
+    LIDAR_HW -->|Scan data| LIDAR
+    
+    KINECT -->|USB| CAMERA_HW
+    CAMERA_HW -->|RGB stream| KINECT
 ```
 
 ---
@@ -70,392 +83,375 @@ This project implements a layered software architecture for a differential-drive
 ## Repository structure
 
 ```
-TK_botz_workspace/
-├── src/
-│   ├── qbot_interfaces/              # Interface contract layer
-│   │   ├── action/
-│   │   │   └── Navigation.action
-│   │   ├── msg/
-│   │   │   └── Position.msg
-│   │   ├── srv/
-│   │   │   └── GetLastPositions.srv
-│   │   ├── CMakeLists.txt
-│   │   └── package.xml
-│   │
-│   ├── qbot_description/             # Robot models
-│   │   ├── urdf/
-│   │   │   └── qbot.urdf
-│   │   ├── sdf/
-│   │   │   ├── qbot.sdf
-│   │   │   └── qbot_world.sdf
-│   │   └── config/
-│   │       └── qbot_controllers.yaml
-│   │
-│   ├── qbot_bringup/                 # Launch and orchestration
-│   │   ├── launch/
-│   │   │   └── lab_06_simulation_launch.py
-│   │   └── package.xml
-│   │
-│   └── qbot_nodes/                   # Application behavior
-│       ├── qbot_nodes/
-│       │   ├── navigation_server.py
-│       │   ├── qbot_controller.py
-│       │   ├── mapper_node.py
-│       │   └── odom_node.py
-│       ├── setup.py
-│       └── package.xml
+final-project-tk_botz/
+├── app_interface/                    # Web UI
+│   └── ros-web-app/                  # React frontend
+│       ├── src/
+│       │   ├── App.js                # Main component: joystick, navigation, odom
+│       │   ├── App.css               # Dashboard styling
+│       │   └── index.js              # React entry point
+│       └── package.json
 │
-└── web_interface/                    # Custom web UI
-    ├── public/
-    ├── src/
-    │   ├── components/
-    │   │   ├── MapPanel.jsx
-    │   │   ├── ControlPanel.jsx
-    │   │   ├── StatusPanel.jsx
-    │   │   └── CameraFeed.jsx
-    │   ├── ros/
-    │   │   └── rosbridge.js          # roslibjs connection + topic helpers
-    │   └── App.jsx
-    ├── package.json
-    └── README.md
+├── ROS/botz_workspace/               # ROS 2 workspace
+│   └── src/
+│       ├── kobuki_driver/            # Robot driver package (Python)
+│       │   ├── kobuki_driver/
+│       │   │   ├── kobuki_node.py    # Main driver: motor commands, odometry
+│       │   │   ├── kuboki_driver.py  # Low-level Kobuki serial interface
+│       │   │   ├── kobuki_nav_server.py  # Navigation service handler
+│       │   │   └── nav_action_server.py  # Legacy action server (commented)
+│       │   ├── launch/
+│       │   │   ├── robot_stack_launch.py # Main launch: Kobuki + LiDAR + SLAM
+│       │   │   ├── kobuki_ekf_launch.py  # EKF node
+│       │   │   ├── slam_launch.py        # SLAM Toolbox
+│       │   │   └── ekf_launch.py
+│       │   ├── config/
+│       │   │   ├── ekf_config.yaml       # EKF filter config
+│       │   │   └── slam_async_config.yaml
+│       │   └── setup.py
+│       │
+│       ├── kobuki_interfaces/        # Message + Service definitions (C++)
+│       │   ├── srv/
+│       │   │   ├── RobotNav.srv      # Goal pose service
+│       │   │   └── CancelRobotNav.srv # Cancel service
+│       │   ├── msg/
+│       │   │   ├── RobotNavFeedback.msg  # Progress updates
+│       │   │   ├── RobotNavGoal.msg
+│       │   │   └── RobotNavResult.msg
+│       │   ├── action/
+│       │   │   └── RobotNav.action   # (Legacy, not used via rosbridge)
+│       │   ├── CMakeLists.txt
+│       │   └── package.xml
+│       │
+│       ├── lidar_driver/             # 2D LiDAR driver (Python)
+│       │   ├── lidar_driver/
+│       │   │   ├── lidar_node.py     # Publishes /scan
+│       │   │   ├── lidar_driver.py   # Serial communication
+│       │   │   └── crc_utils.py
+│       │   ├── launch/
+│       │   │   └── lidar_launch.py
+│       │   └── setup.py
+│       │
+│       └── kinect_ros2/              # Kinect RGB-D camera (C++)
+│           ├── src/
+│           │   ├── kinect_ros2_node.cpp   # Publishes /image_raw
+│           │   └── kinect_ros2_component.cpp
+│           ├── launch/
+│           │   └── pointcloud.launch.py
+│           ├── cfg/
+│           │   ├── calibration_rgb.yaml
+│           │   └── calibration_depth.yaml
+│           ├── CMakeLists.txt
+│           └── package.xml
+│
+├── Dev.md                            # Hardware setup notes (udev rules, SSH config)
+├── SYSTEM_ARCHITECTURE.md            # Detailed system design
+└── README.md                         # This file
 ```
 
----
+## Hardware requirements
 
-## Prerequisites
-
-| Dependency | Version | Notes |
-|---|---|---|
-| Ubuntu | 22.04 LTS | Recommended |
-| ROS 2 | Jazzy Jalisco | `ros-jazzy-desktop` |
-| Gazebo | Harmonic | Matches your ros_gz_bridge version |
-| ros2_control | `ros-jazzy-ros2-control` | |
-| slam_toolbox | `ros-jazzy-slam-toolbox` | |
-| rosbridge_suite | `ros-jazzy-rosbridge-server` | |
-| ros_gz_bridge | `ros-jazzy-ros-gz-bridge` | |
-| Node.js | 18+ | For web interface |
-| Python | 3.10+ | Node scripts |
+| Component | Notes |
+|---|---|
+| **Kobuki Base** | Differential-drive robot with encoders |
+| **2D LiDAR** | Serial interface (currently: YDLIDAR X4) |
+| **Kinect Camera** | RGB-D sensor (Kinect v1 or Kinect for Windows) |
+| **Raspberry Pi 4** | 8 GB RAM + Ubuntu 22.04 LTS (or better) |
+| **Network** | Robot connected to laptop via SSH/ROS_DOMAIN_ID |
 
 ---
 
 ## Installation
 
-### 1. Create workspace and clone
+### 1. Prerequisites on Raspberry Pi / Robot Controller
 
 ```bash
-mkdir -p ~/qbot_ws/src
-cd ~/qbot_ws/src
-git clone https://github.com/your-org/qbot.git .
-```
-
-### 2. Install ROS 2 dependencies
-
-```bash
-cd ~/TK_botz_workspace
+# Install ROS 2 Jazzy
 sudo apt update
-rosdep install --from-paths src --ignore-src -r -y
+sudo curl -sSL https://repo.ros2.org/ros.key | sudo apt-key add -
+sudo add-apt-repository universe
+sudo apt update
+sudo apt install ros-jazzy-desktop
+
+# Install essential packages
+sudo apt install python3-pip git ros-jazzy-rosbridge-server \
+  ros-jazzy-slam-toolbox ros-jazzy-robot-localization \
+  ros-jazzy-ros2-control
+
+# Install Python dependencies
+pip3 install pyserial
+
+# Add udev rules for Kobuki and LiDAR (see Dev.md)
 ```
 
-### 3. Build the workspace
+### 2. Clone and build the ROS workspace
 
 ```bash
-cd ~/TK_botz_workspace
+cd ~
+git clone <repo-url> tk_botz
+cd tk_botz/ROS/botz_workspace
+
+# Install ROS dependencies
+rosdep install --from-paths src --ignore-src -r -y
+
+# Build
 colcon build --symlink-install
 source install/setup.bash
+
+# Add to ~/.bashrc
+echo "source ~/tk_botz/ROS/botz_workspace/install/setup.bash" >> ~/.bashrc
 ```
 
-Add to your shell profile:
+### 3. Set up the web UI (on laptop or same machine)
 
 ```bash
-echo "source ~/qbot_ws/install/setup.bash" >> ~/.bashrc
-```
+cd app_interface/ros-web-app
 
-### 4. Install web interface dependencies
-
-```bash
-cd ~/qbot_ws/web_interface
+# Install Node.js dependencies
 npm install
+
+# Update IP addresses in src/App.js (lines 5-6)
+# controller_ip = "xxx.xxx.xxx.xxx"  # or Robot Controller's IP
+# rpi_ip = "xxx.xxx.xxx.xxx"          # raspberryPi's IP
 ```
 
 ---
 
 ## Running the system
 
-### Simulation (Gazebo)
+### Start the ROS backend stack
 
-Launch the full simulation stack — Gazebo, RViz, ros2_control, SLAM, rosbridge, and all application nodes:
+On the **Raspberry Pi** (or robot controller):
 
 ```bash
-ros2 launch qbot_bringup lab_06_simulation_launch.py
+# Terminal 1: rosbridge_server
+ros2 run rosbridge_server rosbridge_websocket --ros-args -p port:=9090
+
+# Terminal 2: Full robot stack (Kobuki + LiDAR + EKF + SLAM)
+cd ~/tk_botz/ROS/botz_workspace
+source install/setup.bash
+ros2 launch kobuki_driver robot_stack_launch.py \
+  kobuki_port:=/dev/kobuki \
+  lidar_port:=/dev/lidar
 ```
 
-This single launch file starts:
-
-- Gazebo with `qbot_world.sdf`
-- `robot_state_publisher` with `qbot.urdf`
-- `ros_gz_bridge` for topic bridging between Gazebo and ROS 2
-- `ros2_control` controller spawners (diff_drive_controller, joint_state_broadcaster)
-- `slam_toolbox` in mapping mode
-- `navigation_server`, `qbot_controller`, `mapper_node`, `odom_node`
-- `rosbridge_server` on port 9090
+This starts:
+- `kobuki_node` — Motor control and odometry publishing
+- `lidar_node` — 2D LiDAR scanning
+- EKF node — Fuses odometry + IMU data
+- SLAM Toolbox — Real-time mapping and localization
+- `kobuki_nav_server` — Service endpoint for navigation goals
 
 ### Start the web interface
 
-In a separate terminal:
+On your **laptop** (or same machine):
 
 ```bash
-cd ~/qbot_ws/web_interface
+cd ~/tk_botz/app_interface/ros-web-app
 npm start
 ```
 
-Open `http://localhost:3000` in your browser.
-
-### Real-world deployment
-
-For hardware deployment, launch without Gazebo:
-
-```bash
-ros2 launch qbot_bringup real_robot_launch.py
-```
-
-Ensure the hardware interface is configured in `qbot_controllers.yaml` and the robot's serial/USB connection is available.
+Open **http://localhost:3000** in your browser. The UI will attempt to connect to the robot at the IP configured in `App.js`.
 
 ---
 
 ## Web interface
 
-The interface replaces RViz and `teleop_twist_keyboard` with a unified browser-based dashboard.
+The React dashboard provides:
 
-### Map panel
+### Control Panel (Joystick)
+- **Virtual joystick** — Drag to move the robot forward/backward and rotate
+- **CMD_VEL publishing** — Real-time velocity commands (max 0.4 m/s linear, 0.6 rad/s angular)
+- **Live velocity display** — Shows current linear and angular velocity values
 
-- Renders the live 2D occupancy grid from `/map` (published by `slam_toolbox`)
-- Overlays robot pose from `/odom` and `/tf`
-- Click anywhere on free space to set an autonomous navigation goal
-- Displays the planned path and lidar scan visualization
+### Navigation Panel
+- **Goal submission** — Enter target X, Y coordinates and click "START NAVIGATION"
+- **Calls `/robot_nav` service** — Backend accepts goal and begins autonomous navigation
+- **Status feedback** — Displays navigation state and distance to goal from `/robot_nav/feedback`
 
-### Control panel
+### Cancellation
+- **Cancel button** — Calls `/robot_nav/cancel` service to stop active navigation
+- No rosbridge action clients used (more reliable over lossy networks)
 
-- D-pad buttons publish `geometry_msgs/Twist` to `/cmd_vel`
-- Supports linear velocity (linear.x) and angular velocity (angular.z)
-- Autonomous goal panel shows progress feedback from the `Navigation.action` server
-
-### Status panel
-
-- Robot state badge: Idle / Moving / Goal Reached / Error
-- Live topic Hz monitor: `/map`, `/odom`, `/scan`, `/tf`, `/cmd_vel`, `/camera/image_raw`
-- ROS console log showing node output
-
-### Camera feed
-
-- Subscribes to `/camera/image_raw` (Kinect or equivalent)
-- Streams compressed image data via rosbridge
+### Live Displays
+- **Odometry** — Robot X, Y position and yaw angle from `/odometry/filtered`
+- **Status indicator** — Connection status and system messages
+- **Camera stream** — MJPEG stream from the Kinect at `/image_raw` (HTTP endpoint)
 
 ---
 
 ## ROS 2 interfaces
 
-### `Navigation.action`
+### Topics published by backend
 
-Goal-based movement interface used by `navigation_server.py`.
+| Topic | Type | Rate | Notes |
+|---|---|---|---|
+| `/cmd_vel` | `geometry_msgs/Twist` | On demand | Manual teleoperation commands |
+| `/odometry/filtered` | `nav_msgs/Odometry` | ~30 Hz | Robot pose after EKF fusion |
+| `/scan` | `sensor_msgs/LaserScan` | ~10 Hz | 2D LiDAR scan (from lidar_driver) |
+| `/map` | `nav_msgs/OccupancyGrid` | ~1 Hz | Occupancy grid from SLAM |
+| `/image_raw` | `sensor_msgs/Image` | ~30 Hz | Kinect RGB stream |
+| `/robot_nav/feedback` | `kobuki_interfaces/RobotNavFeedback` | ~5 Hz | Navigation progress updates |
 
-```
-# Goal
-float64 target_x
-float64 target_y
-float64 target_yaw
----
-# Result
-bool success
-string message
----
-# Feedback
-float64 distance_remaining
-float64 progress_percent
-string status
-```
+### Services
 
-### `Position.msg`
+| Service | Type | Called by | Response |
+|---|---|---|---|
+| `/robot_nav` | `kobuki_interfaces/RobotNav` | Web UI (start goal) | `success: bool`, `message: string` |
+| `/robot_nav/cancel` | `kobuki_interfaces/CancelRobotNav` | Web UI (cancel goal) | `success: bool`, `message: string` |
 
-Robot pose snapshot stored by `mapper_node`.
+### Transforms (TF)
 
-```
-float64 x
-float64 y
-float64 yaw
-builtin_interfaces/Time stamp
-```
-
-### `GetLastPositions.srv`
-
-Retrieves historical position log from `mapper_node`.
-
-```
-int32 count        # number of positions to retrieve
----
-Position[] positions
-```
-
----
-
-## Node reference
-
-### `navigation_server.py`
-
-ROS 2 action server that accepts `Navigation.action` goals and drives the robot to the target pose. Publishes velocity commands via `qbot_controller` and streams feedback to the action client.
-
-Topics subscribed: `/odom`, `/tf`  
-Action server: `/navigate`
-
-### `qbot_controller.py`
-
-Action client that connects to `navigation_server`. Also acts as a direct velocity publisher for manual teleop commands received from the web interface.
-
-Topics published: `/cmd_vel`  
-Action client: `/navigate`
-
-### `mapper_node.py`
-
-Stores robot pose snapshots at configurable intervals and serves them via the `GetLastPositions` service. Integrates with `slam_toolbox` to correlate positions with map updates.
-
-Topics subscribed: `/odom`  
-Services: `/get_last_positions`
-
-### `odom_node.py`
-
-Optional odometry emulation node for simulation environments where hardware encoders are replaced by Gazebo ground-truth pose. Publishes `nav_msgs/Odometry` to `/odom`.
-
-Topics published: `/odom`
-
----
-
-## Configuration
-
-### Controller configuration — `qbot_controllers.yaml`
-
-```yaml
-controller_manager:
-  ros__parameters:
-    update_rate: 100
-
-diff_drive_controller:
-  ros__parameters:
-    left_wheel_names: ["left_wheel_joint"]
-    right_wheel_names: ["right_wheel_joint"]
-    wheel_separation: 0.35
-    wheel_radius: 0.05
-    publish_rate: 50.0
-    odom_frame_id: odom
-    base_frame_id: base_link
-    cmd_vel_topic: /cmd_vel
-```
-
-### SLAM toolbox
-
-`slam_toolbox` runs in `online_async` mode by default. To save a map:
-
-```bash
-ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap "{name: {data: 'my_map'}}"
-```
-
-To switch to localization mode with a saved map, update the launch argument:
-
-```bash
-ros2 launch qbot_bringup lab_06_simulation_launch.py slam_mode:=localization map:=/path/to/my_map.yaml
-```
-
----
-
-## Communication architecture
-
-```
-Browser (React)
-    │
-    │  WebSocket  ws://localhost:9090
-    ▼
-rosbridge_server
-    │
-    ├── Subscribe  /map              → occupancy grid → MapPanel
-    ├── Subscribe  /odom             → pose → robot marker
-    ├── Subscribe  /tf               → transform tree
-    ├── Subscribe  /camera/image_raw → camera feed
-    ├── Publish    /cmd_vel          → manual control
-    ├── Service    /get_last_positions
-    └── Action     /navigate         → goal + feedback + result
-```
-
-The frontend uses `roslibjs` for all ROS communication:
-
-```javascript
-import ROSLIB from 'roslib';
-
-const ros = new ROSLIB.Ros({ url: 'ws://localhost:9090' });
-
-// Subscribe to map
-const mapTopic = new ROSLIB.Topic({
-  ros, name: '/map', messageType: 'nav_msgs/OccupancyGrid'
-});
-mapTopic.subscribe(msg => renderMap(msg));
-
-// Publish cmd_vel
-const cmdVel = new ROSLIB.Topic({
-  ros, name: '/cmd_vel', messageType: 'geometry_msgs/Twist'
-});
-cmdVel.publish(new ROSLIB.Message({ linear: {x: 0.3}, angular: {z: 0.0} }));
-
-// Send navigation goal
-const navClient = new ROSLIB.ActionClient({
-  ros, serverName: '/navigate', actionName: 'qbot_interfaces/action/Navigation'
-});
-const goal = new ROSLIB.Goal({ actionClient: navClient, goalMessage: { target_x: 1.0, target_y: 2.0, target_yaw: 0.0 } });
-goal.on('feedback', fb => console.log(fb.progress_percent));
-goal.send();
-```
-
----
-
-## Simulation vs real-world deployment
-
-| Feature | Simulation | Real world |
-|---|---|---|
-| Robot model | `qbot.sdf` (Gazebo) | `qbot.urdf` (hardware) |
-| Odometry | `odom_node.py` (ground truth) | Hardware encoders via ros2_control |
-| Sensors | Gazebo plugins (lidar, camera) | Physical Kinect / RPLidar |
-| Bridge | `ros_gz_bridge` | Not needed |
-| Launch file | `lab_06_simulation_launch.py` | `real_robot_launch.py` |
-
----
-
-## Extending the system
-
-The interface is designed to be modular. Some suggested extensions:
-
-- **Object detection** — subscribe to a `/detections` topic and overlay bounding boxes on the map panel
-- **Dynamic obstacles** — visualize costmap inflation layers from `/global_costmap/costmap`
-- **Multi-robot support** — namespace each robot (`/robot1/cmd_vel`, `/robot2/cmd_vel`) and add a robot selector in the UI
-- **Path recording** — use `GetLastPositions.srv` to replay recorded routes
-- **3D visualization** — embed a Three.js point cloud renderer subscribed to `/scan` or `/pointcloud`
-
----
+| Frame | Parent | Published by | Notes |
+|---|---|---|---|
+| `base_link` | `odom` | EKF node | Robot body frame |
+| `odom` | `map` | SLAM Toolbox | Odometry frame |
+| `map` | (root) | SLAM Toolbox | Global map frame |
+| `base_laser` | `base_link` | LiDAR driver | LiDAR sensor frame |
+- Streams compressed image data via rosbridge---
 
 ## Troubleshooting
 
-**rosbridge not connecting**  
-Check that `rosbridge_server` is running: `ros2 node list | grep rosbridge`. Verify port 9090 is not blocked by a firewall.
+### Web UI won't connect to robot
 
-**Map not rendering**  
-Confirm `slam_toolbox` is publishing: `ros2 topic hz /map`. The first map message may take a few seconds after launch.
+**Problem**: "Connection Failed - Is rosbridge running?"
 
-**Robot not moving**  
-Check that the `diff_drive_controller` is active: `ros2 control list_controllers`. Ensure `/cmd_vel` is being received: `ros2 topic echo /cmd_vel`.
+**Solution**:
+1. Verify rosbridge is running on the robot: `ros2 run rosbridge_server rosbridge_websocket`
+2. Check the IP address in `App.js` matches your robot's address
+3. Verify network connectivity: `ping <robot-ip>`
+4. Check firewall allows port 9090: `sudo ufw allow 9090`
 
-**Navigation goal not accepted**  
-Verify `navigation_server` is running: `ros2 node list | grep navigation_server`. Check action server is available: `ros2 action list`.
+### Joystick commands not moving the robot
 
-**Gazebo and ROS 2 topics not bridged**  
-Confirm `ros_gz_bridge` is running and the bridge config matches your topic names and message types.
+**Problem**: Virtual joystick works but robot doesn't move
+
+**Solution**:
+1. Check kobuki_node is running: `ros2 node list`
+2. Verify `/cmd_vel` is being published: `ros2 topic echo /cmd_vel`
+3. Check USB connection to Kobuki: `lsusb | grep Kobuki`
+4. Verify udev rules are set up (see `Dev.md`)
+
+### Navigation goal not accepted
+
+**Problem**: "Goal failed" message when submitting goal
+
+**Solution**:
+1. Check `kobuki_nav_server` is running: `ros2 node list`
+2. Test the service directly: `ros2 service call /robot_nav kobuki_interfaces/srv/RobotNav '{pose: {header: {frame_id: "map"}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}}'`
+3. Check SLAM has started mapping: `ros2 topic echo /map`
+4. Verify odometry is being published: `ros2 topic echo /odometry/filtered`
+
+### LiDAR not publishing scans
+
+**Problem**: `/scan` topic is empty
+
+**Solution**:
+1. Check LiDAR is connected: `lsusb | grep -i lidar`
+2. Verify serial port: `ls -la /dev/lidar`
+3. Check lidar_node is running: `ros2 run lidar_driver lidar_node`
+4. Test serial connection: `cat /dev/lidar | hexdump -C`
+
+### Kinect camera not streaming
+
+**Problem**: Camera display shows "MJPEG Stream failed"
+
+**Solution**:
+1. Check Kinect is detected: `lsusb | grep -i kinect`
+2. Verify image publisher is running: `ros2 topic list | grep image`
+3. Test image reception: `ros2 topic echo /image_raw --once`
+4. Ensure no libfreenect conflicts: `dpkg -l | grep freenect`
+
+### rosbridge_server crashes on startup
+
+**Problem**: "Address already in use" or segmentation fault
+
+**Solution**:
+1. Kill any existing rosbridge processes: `pkill -f rosbridge`
+2. Wait 5 seconds and retry
+3. Check port 9090 is not blocked: `sudo lsof -i :9090`
+4. Try alternate port: `ros2 run rosbridge_server rosbridge_websocket --ros-args -p port:=9091`
+
+---
+
+## Hardware setup notes
+
+See **Dev.md** for:
+- Udev rules for permanent USB device names (`/dev/kobuki`, `/dev/lidar`)
+- SSH configuration for Raspberry Pi access
+- Network bridging between Raspberry Pi and laptop
+
+---
+
+## Code structure
+
+### Frontend (React)
+
+**App.js** (~600 lines):
+- `VirtualJoystick` component — Touch/mouse-based teleoperation
+- roslib instance management — Connection to rosbridge_server
+- `publishCmdVel()` — Publishes joystick input to `/cmd_vel`
+- `sendNavGoal()` — Calls `/robot_nav` service
+- `cancelNavGoal()` — Calls `/robot_nav/cancel` service
+- Subscriptions to `/odometry/filtered` and `/robot_nav/feedback`
+- MJPEG camera stream display via HTTP
+
+### Backend (ROS 2 Python)
+
+**kobuki_driver/kobuki_node.py**:
+- ROS 2 node entry point
+- Subscribes to `/cmd_vel`, drives motor
+- Publishes odometry from wheel encoders
+
+**kobuki_driver/kuboki_driver.py**:
+- Low-level Kobuki serial communication
+- Encoder reading and motor command encoding
+- Thread-based command/event loops
+
+**kobuki_driver/kobuki_nav_server.py**:
+- Service handler for `/robot_nav`
+- Feedback publisher on `/robot_nav/feedback`
+- Navigation state machine (Idle → Moving → Goal reached)
+
+**lidar_driver/lidar_node.py**:
+- LiDAR serial reader
+- Converts raw packets to `/scan` (LaserScan messages)
+
+**kobuki_interfaces/srv/RobotNav.srv**:
+```
+geometry_msgs/PoseStamped pose
+---
+bool success
+string message
+```
+
+**kobuki_interfaces/msg/RobotNavFeedback.msg**:
+```
+float32 distance_remaining
+string status
+```
+
+---
+
+## Future improvements
+
+- [ ] Nav2 integration for path planning
+- [ ] Real-time map visualization in the UI
+- [ ] Multi-goal queue submission
+- [ ] Obstacle avoidance using LiDAR data
+- [ ] Depth image processing from Kinect
+- [ ] RViz alternative web viewer for map + robot pose
+- [ ] Mobile-responsive UI improvements
+
+---
+
+## Contributors
+
+- Tharaka Jayasena
+- Nidharshan
 
 ---
 
 ## License
 
-MIT License. See `LICENSE` for details.
+Apache 2.0
