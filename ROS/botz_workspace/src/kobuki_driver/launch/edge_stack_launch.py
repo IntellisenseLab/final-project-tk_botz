@@ -11,10 +11,11 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     kobuki_pkg_dir = get_package_share_directory('kobuki_driver')
     lidar_pkg_dir = get_package_share_directory('lidar_driver')
-    
+    kinect_pkg_dir = get_package_share_directory('kinect_ros2')
+
     kobuki_ekf_launch = os.path.join(kobuki_pkg_dir, 'launch', 'kobuki_ekf_launch.py')
     lidar_launch = os.path.join(lidar_pkg_dir, 'launch', 'lidar_launch.py')
-    slam_launch = os.path.join(kobuki_pkg_dir, 'launch', 'slam_launch.py')
+    kinect_launch = os.path.join(kinect_pkg_dir, 'launch', 'kinect_stream_launch.py')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -69,5 +70,11 @@ def generate_launch_description():
                 ('serial_port', LaunchConfiguration('lidar_port')),
                 ('use_sim_time', LaunchConfiguration('use_sim_time')),
             ],
+        ),
+
+        # Kinect Stream
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(kinect_launch),
+            launch_arguments=[('use_sim_time', LaunchConfiguration('use_sim_time'))],
         ),
     ])
