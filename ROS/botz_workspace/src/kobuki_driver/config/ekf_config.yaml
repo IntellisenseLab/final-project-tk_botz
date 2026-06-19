@@ -14,7 +14,7 @@ ekf_filter_node:
     world_frame: odom
 
     # Publish state
-    publish_tf: false
+    publish_tf: true
     publish_acceleration: false
 
     # Odom input (wheel odometry)
