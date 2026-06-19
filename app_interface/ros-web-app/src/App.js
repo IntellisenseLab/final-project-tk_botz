@@ -114,7 +114,14 @@ function App() {
   const [actionStatus, setActionStatus] = useState("Idle");
   const [isNavigating, setIsNavigating] = useState(false);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
-  const [goalInput, setGoalInput] = useState({ x: 0, y: 0 });
+  const [goalInput, setGoalInput] = useState({
+    x: 0,
+    y: 0,
+    theta: 1.57,
+    xyTolerance: 0.25,
+    yawTolerance: 0.1,
+  });
+  const [useDirectDrive, setUseDirectDrive] = useState(false);
   const [feedbackMessages, setFeedbackMessages] = useState([]);
   
   const rosRef = useRef(null);
@@ -278,7 +285,7 @@ function App() {
 
   // Send Goal using Service
   const sendNavGoal = () => {
-    const { x, y } = goalInput;
+    const { x, y, theta, xyTolerance, yawTolerance } = goalInput;
 
     if (!rosRef.current || !isConnected) {
       alert("Not connected to robot");
@@ -287,18 +294,17 @@ function App() {
 
     const client = new ROSLIB.Service({
       ros: rosRef.current,
-      name: '/robot_nav',
-      serviceType: 'kobuki_interfaces/srv/RobotNav'
+      name: '/navigate_to_coordinate',
+      serviceType: 'nav_coordinator_interfaces/srv/NavigateToCoordinate'
     });
 
-    const request ={
-      pose: {
-        header: { frame_id: 'map' },
-        pose: {
-          position: { x: parseFloat(x), y: parseFloat(y), z: 0.0 },
-          orientation: { x: 0, y: 0, z: 0, w: 1.0 }
-        }
-      }
+    const request = {
+      x: parseFloat(x),
+      y: parseFloat(y),
+      theta: parseFloat(theta),
+      xy_tolerance: parseFloat(xyTolerance),
+      yaw_tolerance: parseFloat(yawTolerance),
+      use_direct_drive: useDirectDrive,
     };
 
     client.callService(request, (response) => {
@@ -517,43 +523,81 @@ return (
                   />
                 </div>
               </div>
+
+              <div className="goal-input-container" style={{ marginTop: '12px' }}>
+                <div className="input-field">
+                  <label>THETA (rad)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={goalInput.theta} 
+                    onChange={(e) => setGoalInput({...goalInput, theta: e.target.value})}
+                  />
+                </div>
+                <div className="input-field">
+                  <label>XY TOLERANCE (m)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={goalInput.xyTolerance} 
+                    onChange={(e) => setGoalInput({...goalInput, xyTolerance: e.target.value})}
+                  />
+                </div>
+                <div className="input-field">
+                  <label>YAW TOLERANCE (rad)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={goalInput.yawTolerance} 
+                    onChange={(e) => setGoalInput({...goalInput, yawTolerance: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setUseDirectDrive((previous) => !previous)}
+                className="go-button"
+                style={{ marginTop: '12px', background: useDirectDrive ? '#2d7d46' : '#4a4a4a' }}
+              >
+                {useDirectDrive ? 'DIRECT DRIVE: TRUE' : 'DIRECT DRIVE: FALSE'}
+              </button>
               
               <button onClick={sendNavGoal} className="go-button">
                 START NAVIGATION
               </button>
 
-              <button
+              {/* <button
                 onClick={cancelNavGoal}
                 className="go-button"
                 disabled={!isNavigating}
                 style={{ marginTop: '10px', opacity: isNavigating ? 1 : 0.5 }}
               >
                 CANCEL GOAL
-              </button>
+              </button> */}
 
-              <div className="action-feedback">
+              {/* <div className="action-feedback">
                 Status: <span>{actionStatus}</span> <br/>
                 Distance: <span>{distanceRemaining}m</span>
-              </div>
+              </div> */}
             </div>
           </section>
         </section> 
 
         {/* Feedback Log */}
-        <section className="card messaging-card">
+        {/* <section className="card messaging-card">
           <div className="card-header">NAVIGATION FEEDBACK<span>(/robot_nav/feedback)</span></div>
-          {/* <div style={{ maxHeight: '300px', overflow: 'auto', padding: '10px' }}> */}
           <div className="msg-list">
             {feedbackMessages.map((msg, index) => (
               <div key={index}>{msg.status || `${msg.distance_remaining}m remaining`}</div>
             ))}
           </div>
-        </section>
+        </section> */}
 
         
         {/* Telemetry */}
         {/* <section className="card messaging-card">
-          <div className="card-header">TELEMETRY & MESSAGES <span>(/chatter)</span></div>
+          <div className="card-header">TELEMETRY & MESSAGES <span>(/chatter)</span></div>      
           <div className="msg-list">
             {telemetry.map((log, i) => <div key={i} className="msg-item telemetry">{log}</div>)}
           </div>
